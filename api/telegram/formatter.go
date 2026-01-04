@@ -42,7 +42,7 @@ func (f *Formatter) FormatLocationsList(locations []*location.Location) (string,
 		rows = append(rows, NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData(
 				loc.Name,
-				fmt.Sprintf("loc:%s", loc.ID),
+				fmt.Sprintf("loc:%s", loc.ID.String()),
 			),
 		))
 	}
@@ -57,7 +57,7 @@ func (f *Formatter) FormatLocationDetails(location *location.Location) (string, 
 	if location.Address != "" {
 		text += fmt.Sprintf("\n🏠 Адрес: %s", location.Address)
 	}
-	text += fmt.Sprintf("\n\n🔑 ID: %s", location.ID)
+	text += fmt.Sprintf("\n\n🔑 ID: %s", location.ID.String())
 
 	var rows [][]InlineKeyboardButton
 
@@ -119,7 +119,7 @@ func (f *Formatter) FormatLocationCreated(location *location.Location) (string, 
 	if location.AddressMapUrl != "" {
 		text += fmt.Sprintf("\n🗺️ Карта: %s", location.AddressMapUrl)
 	}
-	text += fmt.Sprintf("\n🔑 ID: %s", location.ID)
+	text += fmt.Sprintf("\n🔑 ID: %s", location.ID.String())
 
 	var rows [][]InlineKeyboardButton
 
@@ -157,7 +157,7 @@ func (f *Formatter) FormatDeleteLocationList(locations []*location.Location) (st
 		rows = append(rows, NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData(
 				fmt.Sprintf("🗑️ %s", loc.Name),
-				fmt.Sprintf("admin:delete:%s", loc.ID),
+				fmt.Sprintf("admin:delete:%s", loc.ID.String()),
 			),
 		))
 	}

@@ -1,6 +1,10 @@
 package location
 
-import "context"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 // Repository интерфейс для работы с локациями в хранилище
 type Repository interface {
@@ -8,13 +12,13 @@ type Repository interface {
 	CreateLocation(ctx context.Context, location *Location) error
 
 	// DeleteLocation удаляет локацию
-	DeleteLocation(ctx context.Context, locationID string) error
+	DeleteLocation(ctx context.Context, locationID uuid.UUID) error
 
 	// UpdateLocation обновляет локацию
 	UpdateLocation(ctx context.Context, location *Location) error
 
 	// GetLocation получает локацию по ID
-	GetLocation(ctx context.Context, locationID string) (*Location, error)
+	GetLocation(ctx context.Context, locationID uuid.UUID) (*Location, error)
 
 	// ScanLocations сканирует локации по маске
 	ScanLocations(ctx context.Context, mask string) (Scanner, error)

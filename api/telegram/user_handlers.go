@@ -3,6 +3,8 @@ package telegram
 import (
 	"context"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // handleStart обрабатывает команду /start
@@ -48,10 +50,19 @@ func (h *Handlers) handleLocationSelection(ctx context.Context, cb *CallbackQuer
 		return
 	}
 
-	locationID := parts[1]
+	locationIDStr := parts[1]
+	locationID, err := uuid.Parse(locationIDStr)
+	if err != nil {
+		h.logger.Warn("invalid location ID format", "location_id", locationIDStr, "chat_id", cb.Message.ChatID, "error", err)
+		if sendErr := h.client.SendMessage(cb.Message.ChatID, "Ошибка обработки локации"); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
+		}
+		return
+	}
+
 	location, err := h.locationService.GetLocation(ctx, locationID)
 	if err != nil {
-		h.logger.Error("failed to get location", "location_id", locationID, "chat_id", cb.Message.ChatID, "error", err)
+		h.logger.Error("failed to get location", "location_id", locationID.String(), "chat_id", cb.Message.ChatID, "error", err)
 		if sendErr := h.client.SendMessage(cb.Message.ChatID, "Локация не найдена"); sendErr != nil {
 			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
 		}

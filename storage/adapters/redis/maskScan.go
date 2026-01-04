@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"kitchenBot/domain/location"
+
+	"github.com/google/uuid"
 )
 
 // ScanResult реализация LocationScanner для Redis
@@ -51,19 +53,43 @@ func (sr *ScanResult) GetLocations() (int, error) {
 					continue
 				}
 
+				// Парсим ID
+				var id uuid.UUID
+				if idStr, ok := result["id"]; ok && idStr != "" {
+					parsedID, err := uuid.Parse(idStr)
+					if err != nil {
+						// Если не удалось распарсить из Hash, пытаемся извлечь из ключа
+						if len(key) > 9 && key[:9] == "location:" {
+							parsedID, err = uuid.Parse(key[9:])
+							if err != nil {
+								// Пропускаем этот ключ, если не удалось распарсить ID
+								continue
+							}
+						} else {
+							continue
+						}
+					}
+					id = parsedID
+				} else {
+					// Если ID не найден в Hash, извлекаем из ключа
+					if len(key) > 9 && key[:9] == "location:" {
+						parsedID, err := uuid.Parse(key[9:])
+						if err != nil {
+							// Пропускаем этот ключ, если не удалось распарсить ID
+							continue
+						}
+						id = parsedID
+					} else {
+						continue
+					}
+				}
+
 				// Создаем локацию из полей Hash
 				loc := &location.Location{
-					ID:            result["id"],
+					ID:            id,
 					Name:          result["name"],
 					Address:       result["address"],
 					AddressMapUrl: result["addressMapUrl"],
-				}
-
-				// Если ID не был сохранен в Hash, извлекаем из ключа
-				if loc.ID == "" {
-					if len(key) > 9 && key[:9] == "location:" {
-						loc.ID = key[9:]
-					}
 				}
 
 				sr.Locations = append(sr.Locations, loc)

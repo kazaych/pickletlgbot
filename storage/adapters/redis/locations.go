@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"kitchenBot/domain/location"
+
+	"github.com/google/uuid"
 )
 
 // RedisLocationRepository реализация LocationRepository для Redis
@@ -21,7 +23,7 @@ func NewLocationRepository(client *Client) location.Repository {
 // Формат ключа: location:{id}
 // Используется Redis Hash для хранения полей локации
 func (r *RedisLocationRepository) CreateLocation(ctx context.Context, loc *location.Location) error {
-	key := fmt.Sprintf("location:%s", loc.ID)
+	key := fmt.Sprintf("location:%s", loc.ID.String())
 
 	// Проверяем, не существует ли уже локация с таким ID
 	exists, err := r.client.Exists(ctx, key).Result()
@@ -29,12 +31,12 @@ func (r *RedisLocationRepository) CreateLocation(ctx context.Context, loc *locat
 		return err
 	}
 	if exists > 0 {
-		return fmt.Errorf("локация с ID %s уже существует", loc.ID)
+		return fmt.Errorf("локация с ID %s уже существует", loc.ID.String())
 	}
 
 	// Сохраняем локацию как Hash
 	fields := map[string]interface{}{
-		"id":            loc.ID,
+		"id":            loc.ID.String(),
 		"name":          loc.Name,
 		"address":       loc.Address,
 		"addressMapUrl": loc.AddressMapUrl,
@@ -49,8 +51,8 @@ func (r *RedisLocationRepository) CreateLocation(ctx context.Context, loc *locat
 }
 
 // DeleteLocation удаляет локацию из Redis
-func (r *RedisLocationRepository) DeleteLocation(ctx context.Context, locationID string) error {
-	key := fmt.Sprintf("location:%s", locationID)
+func (r *RedisLocationRepository) DeleteLocation(ctx context.Context, locationID uuid.UUID) error {
+	key := fmt.Sprintf("location:%s", locationID.String())
 
 	err := r.client.Del(ctx, key).Err()
 	if err != nil {
@@ -62,7 +64,7 @@ func (r *RedisLocationRepository) DeleteLocation(ctx context.Context, locationID
 
 // UpdateLocation обновляет локацию
 func (r *RedisLocationRepository) UpdateLocation(ctx context.Context, loc *location.Location) error {
-	key := fmt.Sprintf("location:%s", loc.ID)
+	key := fmt.Sprintf("location:%s", loc.ID.String())
 
 	// Проверяем, существует ли локация
 	exists, err := r.client.Exists(ctx, key).Result()
@@ -70,12 +72,12 @@ func (r *RedisLocationRepository) UpdateLocation(ctx context.Context, loc *locat
 		return err
 	}
 	if exists == 0 {
-		return fmt.Errorf("локация с ID %s не найдена", loc.ID)
+		return fmt.Errorf("локация с ID %s не найдена", loc.ID.String())
 	}
 
 	// Обновляем поля локации в Hash
 	fields := map[string]interface{}{
-		"id":            loc.ID,
+		"id":            loc.ID.String(),
 		"name":          loc.Name,
 		"address":       loc.Address,
 		"addressMapUrl": loc.AddressMapUrl,
@@ -90,8 +92,8 @@ func (r *RedisLocationRepository) UpdateLocation(ctx context.Context, loc *locat
 }
 
 // GetLocation получает локацию по ID
-func (r *RedisLocationRepository) GetLocation(ctx context.Context, locationID string) (*location.Location, error) {
-	key := fmt.Sprintf("location:%s", locationID)
+func (r *RedisLocationRepository) GetLocation(ctx context.Context, locationID uuid.UUID) (*location.Location, error) {
+	key := fmt.Sprintf("location:%s", locationID.String())
 
 	// Получаем все поля Hash
 	result, err := r.client.HGetAll(ctx, key).Result()
@@ -101,12 +103,24 @@ func (r *RedisLocationRepository) GetLocation(ctx context.Context, locationID st
 
 	// Проверяем, что локация существует
 	if len(result) == 0 {
-		return nil, fmt.Errorf("локация с ID %s не найдена", locationID)
+		return nil, fmt.Errorf("локация с ID %s не найдена", locationID.String())
+	}
+
+	// Парсим ID
+	var id uuid.UUID
+	if idStr, ok := result["id"]; ok && idStr != "" {
+		id, err = uuid.Parse(idStr)
+		if err != nil {
+			return nil, fmt.Errorf("неверный формат ID локации: %w", err)
+		}
+	} else {
+		// Если ID не найден в Hash, используем переданный locationID
+		id = locationID
 	}
 
 	// Создаем локацию из полей Hash
 	loc := &location.Location{
-		ID:            result["id"],
+		ID:            id,
 		Name:          result["name"],
 		Address:       result["address"],
 		AddressMapUrl: result["addressMapUrl"],

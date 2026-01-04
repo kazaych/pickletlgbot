@@ -45,7 +45,7 @@ func (s *Service) ListLocations(ctx context.Context) ([]*Location, error) {
 }
 
 // GetLocation получает информацию о локации по ID
-func (s *Service) GetLocation(ctx context.Context, locationID string) (*Location, error) {
+func (s *Service) GetLocation(ctx context.Context, locationID uuid.UUID) (*Location, error) {
 	location, err := s.repo.GetLocation(ctx, locationID)
 	if err != nil {
 		return nil, fmt.Errorf("локация не найдена: %w", err)
@@ -56,7 +56,7 @@ func (s *Service) GetLocation(ctx context.Context, locationID string) (*Location
 
 // CreateLocation создает новую локацию
 func (s *Service) CreateLocation(ctx context.Context, name string, address string, mapUrl string) (*Location, error) {
-	locationID := uuid.New().String()
+	locationID := uuid.New()
 
 	location := &Location{
 		ID:            locationID,
@@ -74,7 +74,7 @@ func (s *Service) CreateLocation(ctx context.Context, name string, address strin
 }
 
 // DeleteLocation удаляет локацию
-func (s *Service) DeleteLocation(ctx context.Context, locationID string) error {
+func (s *Service) DeleteLocation(ctx context.Context, locationID uuid.UUID) error {
 	return s.repo.DeleteLocation(ctx, locationID)
 }
 

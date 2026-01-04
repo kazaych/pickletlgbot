@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // handleAdminCommand обрабатывает команды администратора
@@ -131,7 +133,7 @@ func (h *Handlers) handleAdminCreateLocation(msg *Message, input string) {
 
 	text, keyboard := h.formatter.FormatLocationCreated(location)
 	if err := h.client.SendMessageWithKeyboard(msg.ChatID, text, keyboard); err != nil {
-		h.logger.Error("failed to send location created message", "chat_id", msg.ChatID, "location_id", location.ID, "error", err)
+		h.logger.Error("failed to send location created message", "chat_id", msg.ChatID, "location_id", location.ID.String(), "error", err)
 	}
 }
 
@@ -188,12 +190,20 @@ func (h *Handlers) handleAdminConfirmDeleteLocation(ctx context.Context, cb *Cal
 		return
 	}
 
-	locationID := parts[2]
+	locationIDStr := parts[2]
+	locationID, err := uuid.Parse(locationIDStr)
+	if err != nil {
+		h.logger.Warn("invalid location ID format", "location_id", locationIDStr, "chat_id", cb.Message.ChatID, "error", err)
+		if sendErr := h.client.SendMessage(cb.Message.ChatID, "❌ Ошибка обработки запроса"); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
+		}
+		return
+	}
 
 	// Получаем информацию о локации перед удалением
 	location, err := h.locationService.GetLocation(ctx, locationID)
 	if err != nil {
-		h.logger.Error("failed to get location for deletion", "location_id", locationID, "chat_id", cb.Message.ChatID, "error", err)
+		h.logger.Error("failed to get location for deletion", "location_id", locationID.String(), "chat_id", cb.Message.ChatID, "error", err)
 		if sendErr := h.client.SendMessage(cb.Message.ChatID, "❌ Локация не найдена"); sendErr != nil {
 			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
 		}
@@ -205,7 +215,7 @@ func (h *Handlers) handleAdminConfirmDeleteLocation(ctx context.Context, cb *Cal
 	// Удаляем локацию
 	err = h.locationService.DeleteLocation(ctx, locationID)
 	if err != nil {
-		h.logger.Error("failed to delete location", "location_id", locationID, "chat_id", cb.Message.ChatID, "error", err)
+		h.logger.Error("failed to delete location", "location_id", locationID.String(), "chat_id", cb.Message.ChatID, "error", err)
 		if sendErr := h.client.SendMessage(cb.Message.ChatID, fmt.Sprintf("❌ Ошибка удаления локации: %v", err)); sendErr != nil {
 			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
 		}
