@@ -2,28 +2,42 @@ package telegram
 
 import (
 	"context"
-	"kitchenBot/domain/event"
-	"kitchenBot/domain/location"
 	"log/slog"
 	"os"
+	"pickletlgbot/internal/domain/event"
+	"pickletlgbot/internal/domain/location"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// EventCreationState хранит состояние создания события
+type EventCreationState struct {
+	Step       string // "type", "max_players", "name", "date", "trainer"
+	LocationID location.LocationID
+	EventType  event.EventType
+	MaxPlayers int
+	EventName  string
+	EventDate  time.Time
+	Trainer    string
+}
 
 // Handlers обрабатывает обновления от Telegram и маппит их в вызовы бизнес-сервисов
 type Handlers struct {
-	locationService *location.Service
-	eventService    *event.Service
+	locationService location.LocationService
+	eventService    event.EventService
 	client          *Client
 	formatter       *Formatter
 	adminIDs        []int64
 	logger          *slog.Logger
+	// Временное хранилище для состояния создания событий
+	creatingEvents map[int64]*EventCreationState
 }
 
 // NewHandlers создает новый набор обработчиков
 func NewHandlers(
-	locationService *location.Service,
-	eventService *event.Service,
+	locationService location.LocationService,
+	eventService event.EventService,
 	client *Client,
 ) *Handlers {
 	adminIDs := parseAdminIDs()
@@ -35,6 +49,7 @@ func NewHandlers(
 		formatter:       NewFormatter(),
 		adminIDs:        adminIDs,
 		logger:          logger,
+		creatingEvents:  make(map[int64]*EventCreationState),
 	}
 }
 
@@ -66,9 +81,16 @@ func (h *Handlers) HandleMessage(msg *Message) {
 	case "/start":
 		h.handleStart(msg)
 	default:
-		// Если это не команда, проверяем, не создается ли локация админом
+		// Если это не команда, проверяем, не создается ли что-то админом
 		if h.isAdmin(msg.From.ID) && !strings.HasPrefix(msg.Text, "/") {
-			h.handleAdminCreateLocation(msg, msg.Text)
+			ctx := context.Background()
+			// Проверяем, не создается ли событие
+			if state := h.getCreatingEventState(msg.ChatID); state != nil {
+				h.handleAdminCreateEventStep(ctx, msg, state)
+				return
+			}
+			// Иначе создаем локацию
+			h.handleAdminCreateLocation(ctx, msg, msg.Text)
 		} else {
 			if err := h.client.SendMessage(msg.ChatID, "Нажмите /start для меню"); err != nil {
 				h.logger.Error("failed to send start prompt", "chat_id", msg.ChatID, "error", err)
@@ -106,6 +128,8 @@ func (h *Handlers) HandleCallback(cb *CallbackQuery) {
 	switch cb.Data {
 	case "locations":
 		h.handleLocations(ctx, cb)
+	case "events":
+		h.handleEvents(ctx, cb)
 	case "back:main":
 		h.handleBackToMain(cb)
 	case "admin":
@@ -124,6 +148,16 @@ func (h *Handlers) HandleCallback(cb *CallbackQuery) {
 		// Обработка динамических callback'ов
 		if strings.HasPrefix(cb.Data, "loc:") {
 			h.handleLocationSelection(ctx, cb)
+		} else if strings.HasPrefix(cb.Data, "event:") {
+			// Обработка callback'ов для событий
+			if strings.HasPrefix(cb.Data, "event:register:") {
+				h.handleEventRegistration(ctx, cb)
+			} else if strings.HasPrefix(cb.Data, "event:unregister:") {
+				h.handleEventUnregister(ctx, cb)
+			} else if strings.HasPrefix(cb.Data, "event:") {
+				// Простой выбор события (формат: event:{id})
+				h.handleEventSelection(ctx, cb)
+			}
 		}
 	}
 }
@@ -136,6 +170,16 @@ func (h *Handlers) isAdmin(userID int64) bool {
 		}
 	}
 	return false
+}
+
+// getCreatingEventState возвращает состояние создания события для чата
+func (h *Handlers) getCreatingEventState(chatID int64) *EventCreationState {
+	return h.creatingEvents[chatID]
+}
+
+// isCreatingEvent проверяет, создается ли сейчас событие для данного чата
+func (h *Handlers) isCreatingEvent(chatID int64) bool {
+	return h.creatingEvents[chatID] != nil
 }
 
 // parseAdminIDs парсит список ID администраторов из переменной окружения

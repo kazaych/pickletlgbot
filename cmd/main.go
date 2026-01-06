@@ -1,15 +1,18 @@
 package main
 
 import (
-	"kitchenBot/api/telegram"
-	"kitchenBot/domain/event"
-	"kitchenBot/domain/location"
-	"kitchenBot/storage/adapters/redis"
 	"log"
 	"os"
+	"pickletlgbot/api/telegram"
+	"pickletlgbot/internal/domain/event"
+	"pickletlgbot/internal/domain/location"
+	"pickletlgbot/internal/models"
+	"pickletlgbot/repositories/postgres"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
+	postgresdriver "gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -31,18 +34,31 @@ func main() {
 
 	log.Printf("✅ Бот @%s запущен", tgBot.Self.UserName)
 
-	// Инициализация Storage (Redis)
-	redisClient := redis.NewClient()
-	defer redisClient.Close()
+	// Инициализация PostgreSQL через GORM
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("❌ DATABASE_URL не найден в .env или окружении")
+	}
+
+	db, err := gorm.Open(postgresdriver.Open(dbURL), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("❌ Ошибка подключения к PostgreSQL: %v", err)
+	}
+
+	// Автомиграция моделей
+	if err := db.AutoMigrate(&models.LocationGORM{}, &models.EventGORM{}, &models.EventRegistrationGORM{}); err != nil {
+		log.Fatalf("❌ Ошибка миграции: %v", err)
+	}
+
+	log.Println("✅ Подключение к PostgreSQL установлено")
 
 	// Инициализация репозиториев
-	locationRepo := redis.NewLocationRepository(redisClient)
-	// TODO: eventRepo := redis.NewEventRepository(redisClient) когда будет реализован
+	locationRepo := postgres.NewLocationRepository(db)
+	eventRepo := postgres.NewEventRepository(db)
 
 	// Инициализация доменных сервисов (бизнес-логика)
 	locationService := location.NewService(locationRepo)
-	// TODO: eventService := event.NewService(eventRepo) когда будет реализован
-	var eventService *event.Service = nil // Временно nil, пока не реализован EventRepository
+	eventService := event.NewEventService(eventRepo, locationService)
 
 	// Инициализация API слоя (Telegram)
 	tgClient := telegram.NewClient(tgBot)

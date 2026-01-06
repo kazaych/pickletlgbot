@@ -1,11 +1,12 @@
 package location
 
-import "github.com/google/uuid"
+type LocationID string
 
 // Location представляет локацию в доменной модели
 type Location struct {
-	ID            uuid.UUID
+	ID            LocationID
 	Name          string
 	Address       string
-	AddressMapUrl string
+	Description   string
+	AddressMapURL string
 }

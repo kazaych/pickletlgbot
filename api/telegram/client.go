@@ -131,6 +131,10 @@ func NewInlineKeyboardButtonURL(text, url string) InlineKeyboardButton {
 
 // convertInlineKeyboard конвертирует нашу клавиатуру в tgbotapi формат
 func convertInlineKeyboard(keyboard *InlineKeyboardMarkup) tgbotapi.InlineKeyboardMarkup {
+	if keyboard == nil {
+		return tgbotapi.InlineKeyboardMarkup{}
+	}
+
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, row := range keyboard.InlineKeyboard {
 		var buttons []tgbotapi.InlineKeyboardButton
