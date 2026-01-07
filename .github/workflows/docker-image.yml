@@ -28,7 +28,7 @@ jobs:
 #          tags: ${{ env.IMAGE }}
 
   deploy:
-    needs: build-push
+#    needs: build-push
     runs-on: ubuntu-latest
     steps:
       - name: Execute remote SSH commands using SSH key
