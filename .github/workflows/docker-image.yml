@@ -18,6 +18,7 @@ jobs:
       run: docker build . --file Dockerfile --tag ${{ vars.APP_REGISTRY }}:$GITHUB_SHA
     
   login:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Login to Docker Hub
