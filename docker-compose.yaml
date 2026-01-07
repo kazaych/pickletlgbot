@@ -1,4 +1,3 @@
-version: "2.4"
 services:
   bot:
     image: ${BOT_IMAGE}
@@ -9,8 +8,8 @@ services:
         condition: service_healthy
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@$postgres:${POSTGRES_PORT}/${POSTGRES_DB}"
-      ADMINS_IDS: ${ADMINS_IDS}
+      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:${POSTGRES_PORT}/${POSTGRES_DB}"
+      ADMIN_IDS: ${ADMINS_IDS}
 
   postgres:
     image: ${POSTGRES_IMAGE}
