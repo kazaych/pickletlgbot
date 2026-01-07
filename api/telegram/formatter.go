@@ -339,7 +339,6 @@ func (f *Formatter) FormatEventDetails(evt event.Event) (string, *InlineKeyboard
 	if evt.Description != "" {
 		text += fmt.Sprintf("📝 %s\n", evt.Description)
 	}
-	text += fmt.Sprintf("\n🔑 ID: %s", string(evt.ID))
 
 	var rows [][]InlineKeyboardButton
 	rows = append(rows, NewInlineKeyboardRow(
