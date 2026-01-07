@@ -41,16 +41,16 @@ jobs:
           script: |
             cd /opt/kitchen_project
 
-            sudo cat > .env << EOF
-            BOT_IMAGE=${{ env.IMAGE }}
-            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-            ADMINS_IDS=${{ secrets.ADMINS_IDS }}
-            POSTGRES_PORT=5432
-            POSTGRES_HOST_AUTH_METHOD=${{ vars.POSTGRES_HOST_AUTH_METHOD }}
-            POSTGRES_IMAGE=${{ vars.POSTGRES_IMAGE }}
+            cat > .env << EOF
+              BOT_IMAGE=${{ env.IMAGE }}
+              TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+              POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+              POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+              POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+              ADMINS_IDS=${{ secrets.ADMINS_IDS }}
+              POSTGRES_PORT=5432
+              POSTGRES_HOST_AUTH_METHOD=${{ vars.POSTGRES_HOST_AUTH_METHOD }}
+              POSTGRES_IMAGE=${{ vars.POSTGRES_IMAGE }}
             EOF
   
             sudo docker compose pull
