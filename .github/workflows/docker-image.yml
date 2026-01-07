@@ -39,8 +39,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
-            cd $PROJECT_PATH
-
+            cd /opt/kitchen_project
 
             sudo cat > .env << EOF
             BOT_IMAGE=${{ env.IMAGE }}
