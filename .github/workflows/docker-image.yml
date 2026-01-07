@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag ${{ vars.APP_REGISTRY }}:$GITHUB_SHA
+      run: docker build . --file Dockerfile --tag ${{ vars.APP_REGISTRY }}:${{ github_sha }}
     
   login:
     needs: build
@@ -28,7 +28,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
          
       - name: Push to docker hub
-        run: docker push ${{ vars.APP_REGISTRY }}:$GITHUB_SHA
+        run: docker push ${{ vars.APP_REGISTRY }}:${{ github_sha }}
 
 
         
