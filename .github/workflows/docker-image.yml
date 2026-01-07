@@ -31,53 +31,62 @@ jobs:
     needs: build-push
     runs-on: ubuntu-latest
     steps:
-      - name: Setup SSH (production ready)
-        run: |
-          rm -rf ~/.ssh  # очистка
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
+      - name: Execute remote SSH commands using SSH key
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: whoami
 
-          # Ключ без \r + права 400
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
-          chmod 400 ~/.ssh/id_rsa
-
-          # known_hosts
-          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
-
-          # config
-          cat > ~/.ssh/config << EOF
-          Host *
-          StrictHostKeyChecking no
-          UserKnownHostsFile /dev/null
-          IdentityFile ~/.ssh/id_rsa
-          EOF
-          chmod 400 ~/.ssh/config
-      
-          ssh -o ConnectTimeout=10 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "echo 'SSH OK'"
-
-      - name: Deploy to server
-        run: |
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "          
-            cd $PROJECT_PATH
-            sudo rm -rf .env
-          
-            sudo cat > .env << EOF
-            BOT_IMAGE=${{ env.IMAGE }}
-            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-            ADMINS_IDS=${{ secrets.ADMINS_IDS }}
-            POSTGRES_PORT=5432
-            POSTGRES_HOST_AUTH_METHOD=${{ vars.POSTGRES_HOST_AUTH_METHOD }}
-            POSTGRES_IMAGE=${{ vars.POSTGRES_IMAGE }}
-            EOF
-          
-          
-            # Деплой
-            sudo docker compose pull
-            sudo docker compose down
-            sudo docker compose up -d
-      
-          "
+#      - name: Setup SSH (production ready)
+#        run: |
+#          rm -rf ~/.ssh  # очистка
+#          mkdir -p ~/.ssh
+#          chmod 700 ~/.ssh
+#
+#          # Ключ без \r + права 400
+#          echo "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
+#          chmod 400 ~/.ssh/id_rsa
+#
+#          # known_hosts
+#          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+#          chmod 644 ~/.ssh/known_hosts
+#
+#          # config
+#          cat > ~/.ssh/config << EOF
+#          Host *
+#          StrictHostKeyChecking no
+#          UserKnownHostsFile /dev/null
+#          IdentityFile ~/.ssh/id_rsa
+#          EOF
+#          chmod 400 ~/.ssh/config
+#
+#          ssh -o ConnectTimeout=10 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "echo 'SSH OK'"
+#
+#      - name: Deploy to server
+#        run: |
+#          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+#            cd $PROJECT_PATH
+#            sudo rm -rf .env
+#
+#            sudo cat > .env << EOF
+#            BOT_IMAGE=${{ env.IMAGE }}
+#            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+#            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+#            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+#            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+#            ADMINS_IDS=${{ secrets.ADMINS_IDS }}
+#            POSTGRES_PORT=5432
+#            POSTGRES_HOST_AUTH_METHOD=${{ vars.POSTGRES_HOST_AUTH_METHOD }}
+#            POSTGRES_IMAGE=${{ vars.POSTGRES_IMAGE }}
+#            EOF
+#
+#
+#            # Деплой
+#            sudo docker compose pull
+#            sudo docker compose down
+#            sudo docker compose up -d
+#
+#          "
