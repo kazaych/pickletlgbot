@@ -38,7 +38,8 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
-          script: docker ps
+          script: |
+            docker ps
 
 
 #                cd $PROJECT_PATH
