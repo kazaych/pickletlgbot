@@ -9,26 +9,25 @@ on:
   pull_request:
     branches: [ "main" ]
 
-jobs:     
-  build:
+jobs:
+  build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag ${{ vars.APP_REGISTRY }}:${{ github_sha }}
-    
-  login:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
+      - uses: actions/checkout@v4
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-         
-      - name: Push to docker hub
-        run: docker push ${{ vars.APP_REGISTRY }}:${{ github_sha }}
+
+      - name: Build and push
+        run: |
+          docker build . --file Dockerfile --tag ${{ vars.APP_REGISTRY }}:${{ github.sha }}
+          docker push ${{ vars.APP_REGISTRY }}:${{ github.sha }}
+
 
 
         
