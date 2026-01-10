@@ -17,6 +17,7 @@ func NewClient(bot *tgbotapi.BotAPI) *Client {
 // SendMessage отправляет текстовое сообщение
 func (c *Client) SendMessage(chatID int64, text string) error {
 	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = tgbotapi.ModeHTML // Включаем HTML форматирование
 	_, err := c.bot.Send(msg)
 	return err
 }
@@ -24,6 +25,7 @@ func (c *Client) SendMessage(chatID int64, text string) error {
 // SendMessageWithKeyboard отправляет сообщение с клавиатурой
 func (c *Client) SendMessageWithKeyboard(chatID int64, text string, keyboard *InlineKeyboardMarkup) error {
 	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = tgbotapi.ModeHTML // Включаем HTML форматирование
 	msg.ReplyMarkup = convertInlineKeyboard(keyboard)
 	_, err := c.bot.Send(msg)
 	return err

@@ -77,6 +77,8 @@ func (h *Handlers) handleAdminCallback(ctx context.Context, cb *CallbackQuery) {
 		h.handleAdminDeleteLocation(ctx, cb)
 	case "admin:list_locations":
 		h.handleAdminListLocations(ctx, cb)
+	case "admin:list_events":
+		h.handleAdminListAllEvents(ctx, cb)
 	case "admin:events":
 		text, keyboard := h.formatter.FormatAdminEventsMenu()
 		if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
@@ -165,7 +167,7 @@ func (h *Handlers) handleAdminSelectLocationForEvent(ctx context.Context, cb *Ca
 			NewInlineKeyboardButtonData("🏆 Соревнование", "admin:create_event:type:competition"),
 		),
 		NewInlineKeyboardRow(
-			NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+			NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 		),
 	)
 	if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
@@ -230,6 +232,10 @@ func (h *Handlers) handleAdminCreateEventStep(ctx context.Context, msg *Message,
 		h.handleAdminEnterEventDate(ctx, msg, state)
 	case "trainer":
 		h.handleAdminEnterTrainer(ctx, msg, state)
+	case "payment_phone":
+		h.handleAdminEnterPaymentPhone(ctx, msg, state)
+	case "price":
+		h.handleAdminEnterPrice(ctx, msg, state)
 	default:
 		// Неожиданный шаг, очищаем состояние
 		delete(h.creatingEvents, msg.ChatID)
@@ -317,7 +323,7 @@ func (h *Handlers) handleAdminEnterEventDate(ctx context.Context, msg *Message, 
 	}
 }
 
-// handleAdminEnterTrainer обрабатывает ввод тренера и создает событие
+// handleAdminEnterTrainer обрабатывает ввод тренера
 func (h *Handlers) handleAdminEnterTrainer(ctx context.Context, msg *Message, state *EventCreationState) {
 	trainer := strings.TrimSpace(msg.Text)
 	if trainer == "" {
@@ -328,19 +334,60 @@ func (h *Handlers) handleAdminEnterTrainer(ctx context.Context, msg *Message, st
 	}
 
 	state.Trainer = trainer
+	state.Step = "payment_phone"
+
+	text := fmt.Sprintf("👨‍🏫 Тренер: %s\n\nВведите номер телефона для оплаты (например, +79991234567):", trainer)
+	if err := h.client.SendMessage(msg.ChatID, text); err != nil {
+		h.logger.Error("failed to send payment phone prompt", "chat_id", msg.ChatID, "error", err)
+	}
+}
+
+// handleAdminEnterPaymentPhone обрабатывает ввод телефона для оплаты
+func (h *Handlers) handleAdminEnterPaymentPhone(ctx context.Context, msg *Message, state *EventCreationState) {
+	paymentPhone := strings.TrimSpace(msg.Text)
+	if paymentPhone == "" {
+		if err := h.client.SendMessage(msg.ChatID, "❌ Номер телефона не может быть пустым. Введите номер телефона:"); err != nil {
+			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", err)
+		}
+		return
+	}
+
+	state.PaymentPhone = paymentPhone
+	state.Step = "price"
+
+	text := fmt.Sprintf("📱 Телефон для оплаты: %s\n\nВведите стоимость тренировки (в рублях, только число):", paymentPhone)
+	if err := h.client.SendMessage(msg.ChatID, text); err != nil {
+		h.logger.Error("failed to send price prompt", "chat_id", msg.ChatID, "error", err)
+	}
+}
+
+// handleAdminEnterPrice обрабатывает ввод цены и создает событие
+func (h *Handlers) handleAdminEnterPrice(ctx context.Context, msg *Message, state *EventCreationState) {
+	priceStr := strings.TrimSpace(msg.Text)
+	price, err := strconv.Atoi(priceStr)
+	if err != nil || price < 0 {
+		if err := h.client.SendMessage(msg.ChatID, "❌ Введите корректную стоимость (положительное число в рублях):"); err != nil {
+			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", err)
+		}
+		return
+	}
+
+	state.Price = price
 
 	// Удаляем состояние перед созданием события
 	delete(h.creatingEvents, msg.ChatID)
 
 	// Создаем событие
 	evt, err := h.eventService.Create(ctx, event.CreateEventInput{
-		Name:        state.EventName,
-		Type:        state.EventType,
-		Date:        state.EventDate,
-		MaxPlayers:  state.MaxPlayers,
-		LocationID:  state.LocationID,
-		Trainer:     state.Trainer,
-		Description: "",
+		Name:         state.EventName,
+		Type:         state.EventType,
+		Date:         state.EventDate,
+		MaxPlayers:   state.MaxPlayers,
+		LocationID:   state.LocationID,
+		Trainer:      state.Trainer,
+		Description:  "",
+		PaymentPhone: state.PaymentPhone,
+		Price:        state.Price,
 	})
 
 	if err != nil {
@@ -598,6 +645,38 @@ func (h *Handlers) handleAdminListEvents(ctx context.Context, cb *CallbackQuery,
 	}
 }
 
+// handleAdminListAllEvents обрабатывает список всех событий
+func (h *Handlers) handleAdminListAllEvents(ctx context.Context, cb *CallbackQuery) {
+	allEvents, err := h.eventService.List(ctx)
+	if err != nil {
+		h.logger.Error("failed to list events", "chat_id", cb.Message.ChatID, "error", err)
+		if sendErr := h.client.SendMessage(cb.Message.ChatID, "❌ Ошибка получения списка событий"); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
+		}
+		return
+	}
+
+	// Собираем уникальные LocationID
+	locationIDs := make(map[location.LocationID]bool)
+	for _, evt := range allEvents {
+		locationIDs[evt.LocationID] = true
+	}
+
+	// Загружаем названия локаций
+	locationNames := make(map[location.LocationID]string)
+	for locID := range locationIDs {
+		loc, err := h.locationService.Get(ctx, locID)
+		if err == nil && loc != nil {
+			locationNames[locID] = loc.Name
+		}
+	}
+
+	text, keyboard := h.formatter.FormatEventsList(allEvents, "all", locationNames)
+	if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
+		h.logger.Error("failed to edit message with events list", "chat_id", cb.Message.ChatID, "error", err)
+	}
+}
+
 // handleAdminEventDetails обрабатывает детали события
 func (h *Handlers) handleAdminEventDetails(ctx context.Context, cb *CallbackQuery) {
 	// Парсим eventID из callback data (формат: admin:event:{eventID})
@@ -726,7 +805,7 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 		text := "✅ Нет событий с заявками на модерацию"
 		keyboard := NewInlineKeyboardMarkup(
 			NewInlineKeyboardRow(
-				NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+				NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 			),
 		)
 		if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
@@ -772,7 +851,7 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 	}
 
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)

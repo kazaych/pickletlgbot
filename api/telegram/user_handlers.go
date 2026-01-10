@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"os"
 	"pickletlgbot/internal/domain/event"
 	"pickletlgbot/internal/domain/location"
 	"pickletlgbot/internal/domain/user"
@@ -296,6 +297,72 @@ func (h *Handlers) registerUserToEvent(ctx context.Context, eventID event.EventI
 		if err := h.client.SendMessageWithKeyboard(chatID, text, keyboard); err != nil {
 			h.logger.Error("failed to send message with event details", "chat_id", chatID, "error", err)
 		}
+	}
+
+	// Отправляем сообщение с инструкцией по оплате
+	h.sendPaymentInstruction(ctx, chatID, userID, evt)
+}
+
+// sendPaymentInstruction отправляет сообщение с инструкцией по оплате
+func (h *Handlers) sendPaymentInstruction(ctx context.Context, chatID int64, userID int64, evt *event.Event) {
+	// Получаем данные пользователя
+	usr, err := h.userService.GetByTelegramID(ctx, userID)
+	if err != nil {
+		h.logger.Warn("failed to get user for payment instruction", "user_id", userID, "error", err)
+		return
+	}
+
+	if usr == nil {
+		h.logger.Warn("user not found for payment instruction", "user_id", userID)
+		return
+	}
+
+	// Получаем номер телефона и стоимость из события
+	phoneNumber := evt.PaymentPhone
+	if phoneNumber == "" {
+		// Fallback на переменную окружения, если не указан в событии
+		phoneNumber = os.Getenv("PAYMENT_PHONE")
+		if phoneNumber == "" {
+			phoneNumber = "+79991234567" // Дефолтный номер, если не указан
+			h.logger.Warn("PAYMENT_PHONE not set in event or env, using default", "default_phone", phoneNumber)
+		}
+	}
+
+	// Формируем ФИО пользователя
+	userFullName := usr.Name
+	if usr.Surname != "" {
+		userFullName = fmt.Sprintf("%s %s", usr.Name, usr.Surname)
+	}
+
+	// Форматируем дату и время события
+	dateStr := evt.Date.Format("02.01.2006")
+	timeStr := evt.Date.Format("15:04")
+
+	// Формируем текст для сообщения к переводу (копируемая часть)
+	paymentMessage := fmt.Sprintf("%s\n%s\n%s в %s", userFullName, evt.Name, dateStr, timeStr)
+
+	// Формируем сообщение с инструкцией
+	var priceText string
+	if evt.Price > 0 {
+		priceText = fmt.Sprintf("\n💰 Сумма к оплате: <code>%d руб.</code>", evt.Price)
+	}
+
+	message := fmt.Sprintf(
+		"💳 Для подтверждения регистрации необходимо произвести оплату:\n\n"+
+			"📱 Переведите оплату за тренировку на номер:\n"+
+			"<code>%s</code>%s\n\n"+
+			"📝 В сообщении к переводу укажите:\n"+
+			"<code>%s</code>\n\n"+
+			"💡 Нажмите на текст выше, чтобы скопировать\n\n"+
+			"⚠️ <b>Внимание!</b> Бронь будет автоматически снята через 30 минут, если не будет подтверждения оплаты.\n\n"+
+			"⏳ После оплаты администратор подтвердит вашу регистрацию.",
+		phoneNumber,
+		priceText,
+		paymentMessage,
+	)
+
+	if err := h.client.SendMessage(chatID, message); err != nil {
+		h.logger.Error("failed to send payment instruction", "chat_id", chatID, "error", err)
 	}
 }
 

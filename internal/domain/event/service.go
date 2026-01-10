@@ -83,6 +83,8 @@ func (s *eventService) Create(ctx context.Context, in CreateEventInput) (*Event,
 		LocationID:    in.LocationID,
 		Trainer:       in.Trainer,
 		Description:   in.Description,
+		PaymentPhone:  in.PaymentPhone,
+		Price:         in.Price,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}

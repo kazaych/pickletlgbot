@@ -8,19 +8,21 @@ import (
 
 // EventGORM — таблица `events` для хранения событий
 type EventGORM struct {
-	ID          uint      `gorm:"primaryKey" json:"-"`
-	EventID     string    `gorm:"uniqueIndex;size:36" json:"-"` // UUID
-	Name        string    `gorm:"size:255;not null" json:"name"`
-	Type        string    `gorm:"size:50;not null" json:"type"` // training, competition
-	Date        time.Time `gorm:"not null" json:"date"`
-	Remaining   int       `gorm:"not null;default:0" json:"remaining"`
-	MaxPlayers  int       `gorm:"not null" json:"max_players"`
-	LocationID  string    `gorm:"size:36;not null;index" json:"location_id"`
-	Trainer     string    `gorm:"size:255" json:"trainer"` // Тренер события
-	Description string    `gorm:"type:text" json:"description"`
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   gorm.DeletedAt `gorm:"index"`
+	ID           uint      `gorm:"primaryKey" json:"-"`
+	EventID      string    `gorm:"uniqueIndex;size:36" json:"-"` // UUID
+	Name         string    `gorm:"size:255;not null" json:"name"`
+	Type         string    `gorm:"size:50;not null" json:"type"` // training, competition
+	Date         time.Time `gorm:"not null" json:"date"`
+	Remaining    int       `gorm:"not null;default:0" json:"remaining"`
+	MaxPlayers   int       `gorm:"not null" json:"max_players"`
+	LocationID   string    `gorm:"size:36;not null;index" json:"location_id"`
+	Trainer      string    `gorm:"size:255" json:"trainer"` // Тренер события
+	Description  string    `gorm:"type:text" json:"description"`
+	PaymentPhone string    `gorm:"size:20" json:"payment_phone"`    // Телефон для оплаты
+	Price        int       `gorm:"not null;default:0" json:"price"` // Стоимость тренировки (в копейках)
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    gorm.DeletedAt `gorm:"index"`
 }
 
 // EventRegistrationGORM — таблица для хранения регистраций пользователей на события

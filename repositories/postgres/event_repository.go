@@ -176,17 +176,19 @@ func (r *eventRepository) Delete(ctx context.Context, id event.EventID) error {
 
 func (r *eventRepository) modelToDomain(model *models.EventGORM) (*event.Event, error) {
 	evt := &event.Event{
-		ID:          event.EventID(model.EventID),
-		Name:        model.Name,
-		Type:        event.EventType(model.Type),
-		Date:        model.Date,
-		Remaining:   model.Remaining,
-		MaxPlayers:  model.MaxPlayers,
-		LocationID:  location.LocationID(model.LocationID),
-		Trainer:     model.Trainer,
-		Description: model.Description,
-		CreatedAt:   model.CreatedAt,
-		UpdatedAt:   model.UpdatedAt,
+		ID:           event.EventID(model.EventID),
+		Name:         model.Name,
+		Type:         event.EventType(model.Type),
+		Date:         model.Date,
+		Remaining:    model.Remaining,
+		MaxPlayers:   model.MaxPlayers,
+		LocationID:   location.LocationID(model.LocationID),
+		Trainer:      model.Trainer,
+		Description:  model.Description,
+		PaymentPhone: model.PaymentPhone,
+		Price:        model.Price,
+		CreatedAt:    model.CreatedAt,
+		UpdatedAt:    model.UpdatedAt,
 	}
 
 	evt.Players = []int64{}
@@ -197,17 +199,19 @@ func (r *eventRepository) modelToDomain(model *models.EventGORM) (*event.Event, 
 
 func (r *eventRepository) domainToModel(evt *event.Event) (*models.EventGORM, error) {
 	model := &models.EventGORM{
-		EventID:     string(evt.ID),
-		Name:        evt.Name,
-		Type:        string(evt.Type),
-		Date:        evt.Date,
-		Remaining:   evt.Remaining,
-		MaxPlayers:  evt.MaxPlayers,
-		LocationID:  string(evt.LocationID),
-		Trainer:     evt.Trainer,
-		Description: evt.Description,
-		CreatedAt:   evt.CreatedAt,
-		UpdatedAt:   evt.UpdatedAt,
+		EventID:      string(evt.ID),
+		Name:         evt.Name,
+		Type:         string(evt.Type),
+		Date:         evt.Date,
+		Remaining:    evt.Remaining,
+		MaxPlayers:   evt.MaxPlayers,
+		LocationID:   string(evt.LocationID),
+		Trainer:      evt.Trainer,
+		Description:  evt.Description,
+		PaymentPhone: evt.PaymentPhone,
+		Price:        evt.Price,
+		CreatedAt:    evt.CreatedAt,
+		UpdatedAt:    evt.UpdatedAt,
 	}
 
 	return model, nil

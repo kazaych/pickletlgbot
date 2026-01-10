@@ -14,13 +14,15 @@ import (
 
 // EventCreationState хранит состояние создания события
 type EventCreationState struct {
-	Step       string // "type", "max_players", "name", "date", "trainer"
-	LocationID location.LocationID
-	EventType  event.EventType
-	MaxPlayers int
-	EventName  string
-	EventDate  time.Time
-	Trainer    string
+	Step         string // "type", "max_players", "name", "date", "trainer", "payment_phone", "price"
+	LocationID   location.LocationID
+	EventType    event.EventType
+	MaxPlayers   int
+	EventName    string
+	EventDate    time.Time
+	Trainer      string
+	PaymentPhone string
+	Price        int
 }
 
 // UserRegistrationState хранит состояние регистрации пользователя на событие

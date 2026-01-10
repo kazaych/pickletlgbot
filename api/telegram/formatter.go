@@ -89,10 +89,19 @@ func (f *Formatter) FormatAdminMenu() (string, *InlineKeyboardMarkup) {
 	text := "🔧 Панель администратора\n\nВыберите действие:"
 	keyboard := NewInlineKeyboardMarkup(
 		NewInlineKeyboardRow(
-			NewInlineKeyboardButtonData("📍 Локации", "admin:locations"),
+			NewInlineKeyboardButtonData("➕ Создать событие", "admin:create_event"),
 		),
 		NewInlineKeyboardRow(
-			NewInlineKeyboardButtonData("📅 События", "admin:events"),
+			NewInlineKeyboardButtonData("➕ Создать локацию", "admin:create_location"),
+		),
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("📋 Список событий", "admin:list_events"),
+		),
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("📋 Список локаций", "admin:list_locations"),
+		),
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("✅ Заявки на подтверждение", "admin:events:moderation"),
 		),
 		NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData("🏠 Главное меню", "back:main"),
@@ -281,21 +290,25 @@ func (f *Formatter) FormatAdminEventsMenu() (string, *InlineKeyboardMarkup) {
 // FormatEventsList форматирует список событий
 func (f *Formatter) FormatEventsList(events []event.Event, eventType string, locationNames map[location.LocationID]string) (string, *InlineKeyboardMarkup) {
 	if len(events) == 0 {
-		typeName := "тренировок"
-		if eventType == "competition" {
+		typeName := "событий"
+		if eventType == "training" {
+			typeName = "тренировок"
+		} else if eventType == "competition" {
 			typeName = "соревнований"
 		}
 		text := fmt.Sprintf("📋 Нет %s", typeName)
 		keyboard := NewInlineKeyboardMarkup(
 			NewInlineKeyboardRow(
-				NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+				NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 			),
 		)
 		return text, keyboard
 	}
 
-	typeName := "Тренировки"
-	if eventType == "competition" {
+	typeName := "События"
+	if eventType == "training" {
+		typeName = "Тренировки"
+	} else if eventType == "competition" {
 		typeName = "Соревнования"
 	}
 	text := fmt.Sprintf("📅 %s:", typeName)
@@ -325,7 +338,7 @@ func (f *Formatter) FormatEventsList(events []event.Event, eventType string, loc
 	}
 
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
@@ -351,7 +364,7 @@ func (f *Formatter) FormatEventDetails(evt event.Event) (string, *InlineKeyboard
 		NewInlineKeyboardButtonData("👥 Список участников", fmt.Sprintf("event:users:%s", string(evt.ID))),
 	))
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
@@ -371,7 +384,7 @@ func (f *Formatter) FormatPendingRegistrations(eventName string, registrations [
 		text := fmt.Sprintf("✅ Нет заявок на модерацию для события:\n📅 %s", eventName)
 		keyboard := NewInlineKeyboardMarkup(
 			NewInlineKeyboardRow(
-				NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+				NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 			),
 		)
 		return text, keyboard
@@ -416,7 +429,7 @@ func (f *Formatter) FormatPendingRegistrations(eventName string, registrations [
 	}
 
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
