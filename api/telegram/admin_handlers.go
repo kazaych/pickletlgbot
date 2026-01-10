@@ -77,6 +77,8 @@ func (h *Handlers) handleAdminCallback(ctx context.Context, cb *CallbackQuery) {
 		h.handleAdminDeleteLocation(ctx, cb)
 	case "admin:list_locations":
 		h.handleAdminListLocations(ctx, cb)
+	case "admin:list_events":
+		h.handleAdminListAllEvents(ctx, cb)
 	case "admin:events":
 		text, keyboard := h.formatter.FormatAdminEventsMenu()
 		if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
@@ -165,7 +167,7 @@ func (h *Handlers) handleAdminSelectLocationForEvent(ctx context.Context, cb *Ca
 			NewInlineKeyboardButtonData("🏆 Соревнование", "admin:create_event:type:competition"),
 		),
 		NewInlineKeyboardRow(
-			NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+			NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 		),
 	)
 	if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
@@ -230,6 +232,10 @@ func (h *Handlers) handleAdminCreateEventStep(ctx context.Context, msg *Message,
 		h.handleAdminEnterEventDate(ctx, msg, state)
 	case "trainer":
 		h.handleAdminEnterTrainer(ctx, msg, state)
+	case "payment_phone":
+		h.handleAdminEnterPaymentPhone(ctx, msg, state)
+	case "price":
+		h.handleAdminEnterPrice(ctx, msg, state)
 	default:
 		// Неожиданный шаг, очищаем состояние
 		delete(h.creatingEvents, msg.ChatID)
@@ -317,7 +323,7 @@ func (h *Handlers) handleAdminEnterEventDate(ctx context.Context, msg *Message, 
 	}
 }
 
-// handleAdminEnterTrainer обрабатывает ввод тренера и создает событие
+// handleAdminEnterTrainer обрабатывает ввод тренера
 func (h *Handlers) handleAdminEnterTrainer(ctx context.Context, msg *Message, state *EventCreationState) {
 	trainer := strings.TrimSpace(msg.Text)
 	if trainer == "" {
@@ -328,19 +334,60 @@ func (h *Handlers) handleAdminEnterTrainer(ctx context.Context, msg *Message, st
 	}
 
 	state.Trainer = trainer
+	state.Step = "payment_phone"
+
+	text := fmt.Sprintf("👨‍🏫 Тренер: %s\n\nВведите номер телефона для оплаты (например, +79991234567):", trainer)
+	if err := h.client.SendMessage(msg.ChatID, text); err != nil {
+		h.logger.Error("failed to send payment phone prompt", "chat_id", msg.ChatID, "error", err)
+	}
+}
+
+// handleAdminEnterPaymentPhone обрабатывает ввод телефона для оплаты
+func (h *Handlers) handleAdminEnterPaymentPhone(ctx context.Context, msg *Message, state *EventCreationState) {
+	paymentPhone := strings.TrimSpace(msg.Text)
+	if paymentPhone == "" {
+		if err := h.client.SendMessage(msg.ChatID, "❌ Номер телефона не может быть пустым. Введите номер телефона:"); err != nil {
+			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", err)
+		}
+		return
+	}
+
+	state.PaymentPhone = paymentPhone
+	state.Step = "price"
+
+	text := fmt.Sprintf("📱 Телефон для оплаты: %s\n\nВведите стоимость тренировки (в рублях, только число):", paymentPhone)
+	if err := h.client.SendMessage(msg.ChatID, text); err != nil {
+		h.logger.Error("failed to send price prompt", "chat_id", msg.ChatID, "error", err)
+	}
+}
+
+// handleAdminEnterPrice обрабатывает ввод цены и создает событие
+func (h *Handlers) handleAdminEnterPrice(ctx context.Context, msg *Message, state *EventCreationState) {
+	priceStr := strings.TrimSpace(msg.Text)
+	price, err := strconv.Atoi(priceStr)
+	if err != nil || price < 0 {
+		if err := h.client.SendMessage(msg.ChatID, "❌ Введите корректную стоимость (положительное число в рублях):"); err != nil {
+			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", err)
+		}
+		return
+	}
+
+	state.Price = price
 
 	// Удаляем состояние перед созданием события
 	delete(h.creatingEvents, msg.ChatID)
 
 	// Создаем событие
 	evt, err := h.eventService.Create(ctx, event.CreateEventInput{
-		Name:        state.EventName,
-		Type:        state.EventType,
-		Date:        state.EventDate,
-		MaxPlayers:  state.MaxPlayers,
-		LocationID:  state.LocationID,
-		Trainer:     state.Trainer,
-		Description: "",
+		Name:         state.EventName,
+		Type:         state.EventType,
+		Date:         state.EventDate,
+		MaxPlayers:   state.MaxPlayers,
+		LocationID:   state.LocationID,
+		Trainer:      state.Trainer,
+		Description:  "",
+		PaymentPhone: state.PaymentPhone,
+		Price:        state.Price,
 	})
 
 	if err != nil {
@@ -598,6 +645,38 @@ func (h *Handlers) handleAdminListEvents(ctx context.Context, cb *CallbackQuery,
 	}
 }
 
+// handleAdminListAllEvents обрабатывает список всех событий
+func (h *Handlers) handleAdminListAllEvents(ctx context.Context, cb *CallbackQuery) {
+	allEvents, err := h.eventService.List(ctx)
+	if err != nil {
+		h.logger.Error("failed to list events", "chat_id", cb.Message.ChatID, "error", err)
+		if sendErr := h.client.SendMessage(cb.Message.ChatID, "❌ Ошибка получения списка событий"); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
+		}
+		return
+	}
+
+	// Собираем уникальные LocationID
+	locationIDs := make(map[location.LocationID]bool)
+	for _, evt := range allEvents {
+		locationIDs[evt.LocationID] = true
+	}
+
+	// Загружаем названия локаций
+	locationNames := make(map[location.LocationID]string)
+	for locID := range locationIDs {
+		loc, err := h.locationService.Get(ctx, locID)
+		if err == nil && loc != nil {
+			locationNames[locID] = loc.Name
+		}
+	}
+
+	text, keyboard := h.formatter.FormatEventsList(allEvents, "all", locationNames)
+	if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
+		h.logger.Error("failed to edit message with events list", "chat_id", cb.Message.ChatID, "error", err)
+	}
+}
+
 // handleAdminEventDetails обрабатывает детали события
 func (h *Handlers) handleAdminEventDetails(ctx context.Context, cb *CallbackQuery) {
 	// Парсим eventID из callback data (формат: admin:event:{eventID})
@@ -661,7 +740,28 @@ func (h *Handlers) handleAdminEventModeration(ctx context.Context, cb *CallbackQ
 		return
 	}
 
-	text, keyboard := h.formatter.FormatPendingRegistrations(evt.Name, pending)
+	// Получаем данные пользователей для каждой регистрации
+	registrationsWithUsers := make([]RegistrationWithUser, 0, len(pending))
+	for _, reg := range pending {
+		usr, err := h.userService.GetByTelegramID(ctx, reg.UserID)
+		if err != nil {
+			h.logger.Warn("failed to get user", "telegram_id", reg.UserID, "error", err)
+		}
+
+		var userName, userSurname string
+		if usr != nil {
+			userName = usr.Name
+			userSurname = usr.Surname
+		}
+
+		registrationsWithUsers = append(registrationsWithUsers, RegistrationWithUser{
+			Registration: reg,
+			UserName:     userName,
+			UserSurname:  userSurname,
+		})
+	}
+
+	text, keyboard := h.formatter.FormatPendingRegistrations(evt.Name, registrationsWithUsers)
 	if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
 		h.logger.Error("failed to edit message with pending registrations", "chat_id", cb.Message.ChatID, "error", err)
 	}
@@ -680,6 +780,7 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 
 	// Находим события с pending регистрациями
 	var eventsWithPending []event.Event
+	locationIDs := make(map[location.LocationID]bool)
 	for _, evt := range allEvents {
 		pending, err := h.eventService.ListPendingRegistrations(ctx, evt.ID)
 		if err != nil {
@@ -687,6 +788,16 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 		}
 		if len(pending) > 0 {
 			eventsWithPending = append(eventsWithPending, evt)
+			locationIDs[evt.LocationID] = true
+		}
+	}
+
+	// Загружаем названия локаций
+	locationNames := make(map[location.LocationID]string)
+	for locID := range locationIDs {
+		loc, err := h.locationService.Get(ctx, locID)
+		if err == nil && loc != nil {
+			locationNames[locID] = loc.Name
 		}
 	}
 
@@ -694,7 +805,7 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 		text := "✅ Нет событий с заявками на модерацию"
 		keyboard := NewInlineKeyboardMarkup(
 			NewInlineKeyboardRow(
-				NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+				NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 			),
 		)
 		if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
@@ -707,17 +818,40 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 	var rows [][]InlineKeyboardButton
 	for _, evt := range eventsWithPending {
 		pending, _ := h.eventService.ListPendingRegistrations(ctx, evt.ID)
-		text += fmt.Sprintf("📅 %s (%d заявок)\n", evt.Name, len(pending))
+
+		// Получаем название локации
+		locationName := locationNames[evt.LocationID]
+		if locationName == "" {
+			locationName = string(evt.LocationID)
+		}
+
+		// Форматируем дату и время
+		dateStr := evt.Date.Format("02.01.2006")
+		timeStr := evt.Date.Format("15:04")
+
+		// Формируем текст с информацией о событии
+		text += fmt.Sprintf("📅 %s\n", evt.Name)
+		text += fmt.Sprintf("📍 %s\n", locationName)
+		text += fmt.Sprintf("🗓️ %s в %s\n", dateStr, timeStr)
+		text += fmt.Sprintf("⏳ %d заявок\n\n", len(pending))
+
+		// Формируем текст кнопки с информацией
+		buttonText := fmt.Sprintf("%s | %s | %s (%d)", evt.Name, locationName, timeStr, len(pending))
+		// Ограничиваем длину текста кнопки (Telegram рекомендует до 64 символов)
+		if len(buttonText) > 60 {
+			buttonText = buttonText[:57] + "..."
+		}
+
 		rows = append(rows, NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData(
-				fmt.Sprintf("📅 %s (%d)", evt.Name, len(pending)),
+				buttonText,
 				fmt.Sprintf("admin:event:moderation:%s", string(evt.ID)),
 			),
 		))
 	}
 
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
@@ -745,7 +879,19 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 
 		for _, evt := range allEvents {
 			if reg, exists := evt.Registrations[userID]; exists && reg.Status == event.RegistrationStatusPending {
-				text, keyboard := h.formatter.FormatRegistrationModeration(evt.Name, userID, string(evt.ID))
+				// Получаем данные пользователя для отображения имени и фамилии
+				usr, err := h.userService.GetByTelegramID(ctx, userID)
+				if err != nil {
+					h.logger.Error("failed to get user", "user_id", userID, "error", err)
+				}
+
+				var userName, userSurname string
+				if usr != nil {
+					userName = usr.Name
+					userSurname = usr.Surname
+				}
+
+				text, keyboard := h.formatter.FormatRegistrationModeration(evt.Name, userID, userName, userSurname, string(evt.ID))
 				if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
 					h.logger.Error("failed to edit message with registration moderation", "chat_id", cb.Message.ChatID, "error", err)
 				}
@@ -762,7 +908,13 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 		fmt.Sscanf(parts[4], "%d", &userID)
 
 		if parts[2] == "approve" {
-			err := h.eventService.ApproveRegistration(ctx, eventID, userID)
+			// Получаем данные пользователя для вывода имени и фамилии
+			usr, err := h.userService.GetByTelegramID(ctx, userID)
+			if err != nil {
+				h.logger.Error("failed to get user", "user_id", userID, "error", err)
+			}
+
+			err = h.eventService.ApproveRegistration(ctx, eventID, userID)
 			if err != nil {
 				h.logger.Error("failed to approve registration", "event_id", string(eventID), "user_id", userID, "error", err)
 				if sendErr := h.client.SendMessage(cb.Message.ChatID, fmt.Sprintf("❌ Ошибка подтверждения: %v", err)); sendErr != nil {
@@ -770,7 +922,14 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 				}
 				return
 			}
-			if err := h.client.SendMessage(cb.Message.ChatID, "✅ Регистрация подтверждена"); err != nil {
+
+			// Формируем сообщение с именем и фамилией пользователя
+			message := "✅ Регистрация подтверждена"
+			if usr != nil {
+				message = fmt.Sprintf("✅ Регистрация подтверждена\n\n👤 Пользователь: %s %s", usr.Name, usr.Surname)
+			}
+
+			if err := h.client.SendMessage(cb.Message.ChatID, message); err != nil {
 				h.logger.Error("failed to send success message", "chat_id", cb.Message.ChatID, "error", err)
 			}
 		} else {
@@ -791,7 +950,29 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 		evt, err := h.eventService.Get(ctx, eventID)
 		if err == nil && evt != nil {
 			pending, _ := h.eventService.ListPendingRegistrations(ctx, eventID)
-			text, keyboard := h.formatter.FormatPendingRegistrations(evt.Name, pending)
+
+			// Получаем данные пользователей для каждой регистрации
+			registrationsWithUsers := make([]RegistrationWithUser, 0, len(pending))
+			for _, reg := range pending {
+				usr, err := h.userService.GetByTelegramID(ctx, reg.UserID)
+				if err != nil {
+					h.logger.Warn("failed to get user", "telegram_id", reg.UserID, "error", err)
+				}
+
+				var userName, userSurname string
+				if usr != nil {
+					userName = usr.Name
+					userSurname = usr.Surname
+				}
+
+				registrationsWithUsers = append(registrationsWithUsers, RegistrationWithUser{
+					Registration: reg,
+					UserName:     userName,
+					UserSurname:  userSurname,
+				})
+			}
+
+			text, keyboard := h.formatter.FormatPendingRegistrations(evt.Name, registrationsWithUsers)
 			if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
 				h.logger.Error("failed to edit message with pending registrations", "chat_id", cb.Message.ChatID, "error", err)
 			}

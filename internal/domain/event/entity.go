@@ -40,6 +40,8 @@ type Event struct {
 	LocationID    location.LocationID
 	Trainer       string // Тренер события
 	Description   string // Описание события (опционально)
+	PaymentPhone  string // Телефон для оплаты
+	Price         int    // Стоимость тренировки (в копейках или минимальных единицах)
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -53,13 +55,15 @@ const (
 
 // CreateEventInput - DTO для создания события
 type CreateEventInput struct {
-	Name        string
-	Type        EventType
-	Date        time.Time
-	MaxPlayers  int
-	LocationID  location.LocationID
-	Trainer     string
-	Description string
+	Name         string
+	Type         EventType
+	Date         time.Time
+	MaxPlayers   int
+	LocationID   location.LocationID
+	Trainer      string
+	Description  string
+	PaymentPhone string
+	Price        int
 }
 
 // UpdateEventInput - DTO для обновления события

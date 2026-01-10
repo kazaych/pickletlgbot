@@ -21,7 +21,7 @@ type EventService interface {
 	Delete(ctx context.Context, id EventID) error
 
 	// Регистрация пользователей
-	RegisterUser(ctx context.Context, eventID EventID, userID int64) error // Создает регистрацию со статусом pending
+	RegisterUserToEvent(ctx context.Context, eventID EventID, userID int64) error // Создает регистрацию со статусом pending
 	UnregisterUser(ctx context.Context, eventID EventID, userID int64) error
 
 	// Модерация регистраций (для админов)
@@ -83,6 +83,8 @@ func (s *eventService) Create(ctx context.Context, in CreateEventInput) (*Event,
 		LocationID:    in.LocationID,
 		Trainer:       in.Trainer,
 		Description:   in.Description,
+		PaymentPhone:  in.PaymentPhone,
+		Price:         in.Price,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}
@@ -150,7 +152,7 @@ func (s *eventService) Delete(ctx context.Context, id EventID) error {
 	return s.repo.Delete(ctx, id)
 }
 
-func (s *eventService) RegisterUser(ctx context.Context, eventID EventID, userID int64) error {
+func (s *eventService) RegisterUserToEvent(ctx context.Context, eventID EventID, userID int64) error {
 	event, err := s.repo.GetByID(ctx, eventID)
 	if err != nil {
 		return err

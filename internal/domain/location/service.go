@@ -49,7 +49,7 @@ func (s *locationService) List(ctx context.Context) ([]Location, error) {
 
 func (s *locationService) Create(ctx context.Context, in CreateLocationInput) (*Location, error) {
 	loc := &Location{
-		ID:            generateID(), // тут либо uuid, либо внешнее присвоение
+		ID:            generateID(),
 		Name:          in.Name,
 		Address:       in.Address,
 		Description:   in.Description,

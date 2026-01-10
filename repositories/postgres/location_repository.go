@@ -24,7 +24,7 @@ func (r *locationRepository) GetByID(ctx context.Context, id location.LocationID
 		Where("location_id = ?", id).
 		First(&model).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil // или custom ErrNotFound
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (r *locationRepository) GetByID(ctx context.Context, id location.LocationID
 func (r *locationRepository) List(ctx context.Context) ([]location.Location, error) {
 	var models []models.LocationGORM
 	if err := r.db.WithContext(ctx).
-		Unscoped(). // показывать удалённые? Или Where("deleted_at IS NULL")
+		Unscoped().
 		Find(&models).Error; err != nil {
 		return nil, err
 	}

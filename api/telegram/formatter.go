@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"pickletlgbot/internal/domain/event"
 	"pickletlgbot/internal/domain/location"
+	"pickletlgbot/internal/domain/user"
 	"time"
 )
 
@@ -23,7 +24,7 @@ func (f *Formatter) FormatMainMenu() (string, *InlineKeyboardMarkup) {
 			NewInlineKeyboardButtonData("📍 Локации", "locations"),
 		),
 		NewInlineKeyboardRow(
-			NewInlineKeyboardButtonData("📅 Записаться на событие", "events"),
+			NewInlineKeyboardButtonData("📅 Список событий", "events"),
 		),
 		NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData("👨‍ Администратор", "admin"),
@@ -59,9 +60,13 @@ func (f *Formatter) FormatLocationDetails(location *location.Location) (string, 
 	if location.Address != "" {
 		text += fmt.Sprintf("\n🏠 Адрес: %s", location.Address)
 	}
-	text += fmt.Sprintf("\n\n🔑 ID: %s", string(location.ID))
 
 	var rows [][]InlineKeyboardButton
+
+	// Добавляем кнопку "Список событий по локации"
+	rows = append(rows, NewInlineKeyboardRow(
+		NewInlineKeyboardButtonData("📅 Список событий", fmt.Sprintf("loc:events:%s", string(location.ID))),
+	))
 
 	// Если есть URL карты, добавляем кнопку с картой
 	if location.AddressMapURL != "" {
@@ -84,10 +89,19 @@ func (f *Formatter) FormatAdminMenu() (string, *InlineKeyboardMarkup) {
 	text := "🔧 Панель администратора\n\nВыберите действие:"
 	keyboard := NewInlineKeyboardMarkup(
 		NewInlineKeyboardRow(
-			NewInlineKeyboardButtonData("📍 Локации", "admin:locations"),
+			NewInlineKeyboardButtonData("➕ Создать событие", "admin:create_event"),
 		),
 		NewInlineKeyboardRow(
-			NewInlineKeyboardButtonData("📅 События", "admin:events"),
+			NewInlineKeyboardButtonData("➕ Создать локацию", "admin:create_location"),
+		),
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("📋 Список событий", "admin:list_events"),
+		),
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("📋 Список локаций", "admin:list_locations"),
+		),
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("✅ Заявки на подтверждение", "admin:events:moderation"),
 		),
 		NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData("🏠 Главное меню", "back:main"),
@@ -276,21 +290,25 @@ func (f *Formatter) FormatAdminEventsMenu() (string, *InlineKeyboardMarkup) {
 // FormatEventsList форматирует список событий
 func (f *Formatter) FormatEventsList(events []event.Event, eventType string, locationNames map[location.LocationID]string) (string, *InlineKeyboardMarkup) {
 	if len(events) == 0 {
-		typeName := "тренировок"
-		if eventType == "competition" {
+		typeName := "событий"
+		if eventType == "training" {
+			typeName = "тренировок"
+		} else if eventType == "competition" {
 			typeName = "соревнований"
 		}
 		text := fmt.Sprintf("📋 Нет %s", typeName)
 		keyboard := NewInlineKeyboardMarkup(
 			NewInlineKeyboardRow(
-				NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+				NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 			),
 		)
 		return text, keyboard
 	}
 
-	typeName := "Тренировки"
-	if eventType == "competition" {
+	typeName := "События"
+	if eventType == "training" {
+		typeName = "Тренировки"
+	} else if eventType == "competition" {
 		typeName = "Соревнования"
 	}
 	text := fmt.Sprintf("📅 %s:", typeName)
@@ -320,7 +338,7 @@ func (f *Formatter) FormatEventsList(events []event.Event, eventType string, loc
 	}
 
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
@@ -343,22 +361,30 @@ func (f *Formatter) FormatEventDetails(evt event.Event) (string, *InlineKeyboard
 	var rows [][]InlineKeyboardButton
 	rows = append(rows, NewInlineKeyboardRow(
 		NewInlineKeyboardButtonData("✅ Модерация", fmt.Sprintf("admin:event:moderation:%s", string(evt.ID))),
+		NewInlineKeyboardButtonData("👥 Список участников", fmt.Sprintf("event:users:%s", string(evt.ID))),
 	))
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
 	return text, keyboard
 }
 
+// RegistrationWithUser представляет регистрацию с данными пользователя
+type RegistrationWithUser struct {
+	Registration event.EventRegistration
+	UserName     string
+	UserSurname  string
+}
+
 // FormatPendingRegistrations форматирует список ожидающих регистраций
-func (f *Formatter) FormatPendingRegistrations(eventName string, registrations []event.EventRegistration) (string, *InlineKeyboardMarkup) {
+func (f *Formatter) FormatPendingRegistrations(eventName string, registrations []RegistrationWithUser) (string, *InlineKeyboardMarkup) {
 	if len(registrations) == 0 {
 		text := fmt.Sprintf("✅ Нет заявок на модерацию для события:\n📅 %s", eventName)
 		keyboard := NewInlineKeyboardMarkup(
 			NewInlineKeyboardRow(
-				NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+				NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 			),
 		)
 		return text, keyboard
@@ -367,7 +393,8 @@ func (f *Formatter) FormatPendingRegistrations(eventName string, registrations [
 	text := fmt.Sprintf("🔔 Заявки на модерацию:\n📅 %s\n\n", eventName)
 
 	var rows [][]InlineKeyboardButton
-	for _, reg := range registrations {
+	for _, item := range registrations {
+		reg := item.Registration
 		timeAgo := time.Since(reg.CreatedAt)
 		var timeStr string
 		if timeAgo < time.Minute {
@@ -378,18 +405,31 @@ func (f *Formatter) FormatPendingRegistrations(eventName string, registrations [
 			timeStr = fmt.Sprintf("%.0f ч назад", timeAgo.Hours())
 		}
 
-		text += fmt.Sprintf("👤 Пользователь ID: %d\n⏰ %s\n\n", reg.UserID, timeStr)
+		// Формируем имя пользователя
+		userInfo := fmt.Sprintf("ID: %d", reg.UserID)
+		if item.UserName != "" || item.UserSurname != "" {
+			userInfo = fmt.Sprintf("%s %s", item.UserName, item.UserSurname)
+		}
+
+		text += fmt.Sprintf("👤 Пользователь: %s\n⏰ %s\n\n", userInfo, timeStr)
+
+		// Формируем текст кнопки
+		buttonText := userInfo
+		if len(buttonText) > 50 {
+			buttonText = buttonText[:47] + "..."
+		}
+		buttonText = fmt.Sprintf("👤 %s (%s)", buttonText, timeStr)
 
 		rows = append(rows, NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData(
-				fmt.Sprintf("👤 ID: %d (%s)", reg.UserID, timeStr),
+				buttonText,
 				fmt.Sprintf("admin:reg:%d", reg.UserID),
 			),
 		))
 	}
 
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🔙 Назад", "admin:events"),
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
@@ -397,8 +437,14 @@ func (f *Formatter) FormatPendingRegistrations(eventName string, registrations [
 }
 
 // FormatRegistrationModeration форматирует модерацию конкретной регистрации
-func (f *Formatter) FormatRegistrationModeration(eventName string, userID int64, eventID string) (string, *InlineKeyboardMarkup) {
-	text := fmt.Sprintf("🔔 Модерация регистрации\n\n📅 Событие: %s\n👤 Пользователь ID: %d\n\nВыберите действие:", eventName, userID)
+func (f *Formatter) FormatRegistrationModeration(eventName string, userID int64, userName, userSurname string, eventID string) (string, *InlineKeyboardMarkup) {
+	// Формируем текст с именем и фамилией, если они доступны
+	userInfo := fmt.Sprintf("ID: %d", userID)
+	if userName != "" || userSurname != "" {
+		userInfo = fmt.Sprintf("%s %s (ID: %d)", userName, userSurname, userID)
+	}
+
+	text := fmt.Sprintf("🔔 Модерация регистрации\n\n📅 Событие: %s\n👤 Пользователь: %s\n\nВыберите действие:", eventName, userInfo)
 	keyboard := NewInlineKeyboardMarkup(
 		NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData("✅ Подтвердить", fmt.Sprintf("admin:reg:approve:%s:%d", eventID, userID)),
@@ -413,11 +459,16 @@ func (f *Formatter) FormatRegistrationModeration(eventName string, userID int64,
 
 // FormatEventsListForUsers форматирует список событий для пользователей
 func (f *Formatter) FormatEventsListForUsers(events []event.Event, locationNames map[location.LocationID]string) (string, *InlineKeyboardMarkup) {
+	return f.FormatEventsListForUsersWithBack(events, locationNames, "back:main", "🏠 Главное меню")
+}
+
+// FormatEventsListForUsersWithBack форматирует список событий для пользователей с кастомной кнопкой "Назад"
+func (f *Formatter) FormatEventsListForUsersWithBack(events []event.Event, locationNames map[location.LocationID]string, backCallback, backText string) (string, *InlineKeyboardMarkup) {
 	if len(events) == 0 {
 		text := "📋 Нет доступных событий"
 		keyboard := NewInlineKeyboardMarkup(
 			NewInlineKeyboardRow(
-				NewInlineKeyboardButtonData("🏠 Главное меню", "back:main"),
+				NewInlineKeyboardButtonData(backText, backCallback),
 			),
 		)
 		return text, keyboard
@@ -449,7 +500,7 @@ func (f *Formatter) FormatEventsListForUsers(events []event.Event, locationNames
 	}
 
 	rows = append(rows, NewInlineKeyboardRow(
-		NewInlineKeyboardButtonData("🏠 Главное меню", "back:main"),
+		NewInlineKeyboardButtonData(backText, backCallback),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
@@ -511,10 +562,90 @@ func (f *Formatter) FormatEventDetailsForUsers(evt *event.Event, userID int64) (
 		}
 	}
 
+	// Добавляем кнопку для просмотра списка участников
+	rows = append(rows, NewInlineKeyboardRow(
+		NewInlineKeyboardButtonData("👥 Список участников", fmt.Sprintf("event:users:%s", string(evt.ID))),
+	))
+
 	rows = append(rows, NewInlineKeyboardRow(
 		NewInlineKeyboardButtonData("🔙 К списку событий", "events"),
 	))
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
+	return text, keyboard
+}
+
+// UserWithStatus представляет пользователя со статусом регистрации
+type UserWithStatus struct {
+	User   *user.User
+	Status event.RegistrationStatus
+}
+
+// FormatEventUsersList форматирует список участников события
+func (f *Formatter) FormatEventUsersList(eventName string, usersWithStatus []UserWithStatus, eventID string) (string, *InlineKeyboardMarkup) {
+	text := fmt.Sprintf("👥 Участники события: %s\n\n", eventName)
+
+	if len(usersWithStatus) == 0 {
+		text += "📭 Пока нет зарегистрированных участников"
+	} else {
+		// Группируем по статусам
+		var approved, pending, rejected []string
+
+		for _, item := range usersWithStatus {
+			if item.User == nil {
+				continue
+			}
+
+			userName := item.User.Name
+			if item.User.Surname != "" {
+				userName += " " + item.User.Surname
+			}
+			if userName == "" {
+				userName = fmt.Sprintf("ID: %d", item.User.TelegramID)
+			}
+
+			switch item.Status {
+			case event.RegistrationStatusApproved:
+				approved = append(approved, fmt.Sprintf("✅ %s", userName))
+			case event.RegistrationStatusPending:
+				pending = append(pending, fmt.Sprintf("⏳ %s", userName))
+			case event.RegistrationStatusRejected:
+				rejected = append(rejected, fmt.Sprintf("❌ %s", userName))
+			}
+		}
+
+		// Выводим подтвержденных
+		if len(approved) > 0 {
+			text += "✅ Подтвержденные:\n"
+			for _, u := range approved {
+				text += fmt.Sprintf("  %s\n", u)
+			}
+			text += "\n"
+		}
+
+		// Выводим ожидающих
+		if len(pending) > 0 {
+			text += "⏳ Ожидают подтверждения:\n"
+			for _, u := range pending {
+				text += fmt.Sprintf("  %s\n", u)
+			}
+			text += "\n"
+		}
+
+		// Выводим отклоненных (обычно не показываем, но на всякий случай)
+		if len(rejected) > 0 {
+			text += "❌ Отклоненные:\n"
+			for _, u := range rejected {
+				text += fmt.Sprintf("  %s\n", u)
+			}
+		}
+	}
+
+	keyboard := NewInlineKeyboardMarkup(
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("🔙 К событию", fmt.Sprintf("event:%s", eventID)),
+		),
+	)
+
 	return text, keyboard
 }
