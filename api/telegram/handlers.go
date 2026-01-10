@@ -6,6 +6,7 @@ import (
 	"os"
 	"pickletlgbot/internal/domain/event"
 	"pickletlgbot/internal/domain/location"
+	"pickletlgbot/internal/domain/user"
 	"strconv"
 	"strings"
 	"time"
@@ -22,34 +23,47 @@ type EventCreationState struct {
 	Trainer    string
 }
 
+// UserRegistrationState хранит состояние регистрации пользователя на событие
+type UserRegistrationState struct {
+	EventID   event.EventID
+	Step      string // "name", "surname"
+	FirstName string
+}
+
 // Handlers обрабатывает обновления от Telegram и маппит их в вызовы бизнес-сервисов
 type Handlers struct {
 	locationService location.LocationService
 	eventService    event.EventService
+	userService     user.UserService
 	client          *Client
 	formatter       *Formatter
 	adminIDs        []int64
 	logger          *slog.Logger
 	// Временное хранилище для состояния создания событий
 	creatingEvents map[int64]*EventCreationState
+	// Временное хранилище для состояния регистрации пользователей
+	registeringUsers map[int64]*UserRegistrationState
 }
 
 // NewHandlers создает новый набор обработчиков
 func NewHandlers(
 	locationService location.LocationService,
 	eventService event.EventService,
+	userService user.UserService,
 	client *Client,
 ) *Handlers {
 	adminIDs := parseAdminIDs()
 	logger := slog.Default()
 	return &Handlers{
-		locationService: locationService,
-		eventService:    eventService,
-		client:          client,
-		formatter:       NewFormatter(),
-		adminIDs:        adminIDs,
-		logger:          logger,
-		creatingEvents:  make(map[int64]*EventCreationState),
+		locationService:  locationService,
+		eventService:     eventService,
+		userService:      userService,
+		client:           client,
+		formatter:        NewFormatter(),
+		adminIDs:         adminIDs,
+		logger:           logger,
+		creatingEvents:   make(map[int64]*EventCreationState),
+		registeringUsers: make(map[int64]*UserRegistrationState),
 	}
 }
 
@@ -81,9 +95,16 @@ func (h *Handlers) HandleMessage(msg *Message) {
 	case "/start":
 		h.handleStart(msg)
 	default:
+		ctx := context.Background()
+
+		// Проверяем, не регистрируется ли пользователь (ввод имени/фамилии)
+		if state := h.getUserRegistrationState(msg.From.ID); state != nil {
+			h.handleUserRegistrationStep(ctx, msg, state)
+			return
+		}
+
 		// Если это не команда, проверяем, не создается ли что-то админом
 		if h.isAdmin(msg.From.ID) && !strings.HasPrefix(msg.Text, "/") {
-			ctx := context.Background()
 			// Проверяем, не создается ли событие
 			if state := h.getCreatingEventState(msg.ChatID); state != nil {
 				h.handleAdminCreateEventStep(ctx, msg, state)
@@ -146,7 +167,9 @@ func (h *Handlers) HandleCallback(cb *CallbackQuery) {
 		}
 	default:
 		// Обработка динамических callback'ов
-		if strings.HasPrefix(cb.Data, "loc:") {
+		if strings.HasPrefix(cb.Data, "loc:events:") {
+			h.handleLocationEvents(ctx, cb)
+		} else if strings.HasPrefix(cb.Data, "loc:") {
 			h.handleLocationSelection(ctx, cb)
 		} else if strings.HasPrefix(cb.Data, "event:") {
 			// Обработка callback'ов для событий
@@ -154,6 +177,8 @@ func (h *Handlers) HandleCallback(cb *CallbackQuery) {
 				h.handleEventRegistration(ctx, cb)
 			} else if strings.HasPrefix(cb.Data, "event:unregister:") {
 				h.handleEventUnregister(ctx, cb)
+			} else if strings.HasPrefix(cb.Data, "event:users:") {
+				h.handleEventUsersList(ctx, cb)
 			} else if strings.HasPrefix(cb.Data, "event:") {
 				// Простой выбор события (формат: event:{id})
 				h.handleEventSelection(ctx, cb)
@@ -180,6 +205,21 @@ func (h *Handlers) getCreatingEventState(chatID int64) *EventCreationState {
 // isCreatingEvent проверяет, создается ли сейчас событие для данного чата
 func (h *Handlers) isCreatingEvent(chatID int64) bool {
 	return h.creatingEvents[chatID] != nil
+}
+
+// getUserRegistrationState возвращает состояние регистрации пользователя
+func (h *Handlers) getUserRegistrationState(userID int64) *UserRegistrationState {
+	return h.registeringUsers[userID]
+}
+
+// setUserRegistrationState устанавливает состояние регистрации пользователя
+func (h *Handlers) setUserRegistrationState(userID int64, state *UserRegistrationState) {
+	h.registeringUsers[userID] = state
+}
+
+// clearUserRegistrationState очищает состояние регистрации пользователя
+func (h *Handlers) clearUserRegistrationState(userID int64) {
+	delete(h.registeringUsers, userID)
 }
 
 // parseAdminIDs парсит список ID администраторов из переменной окружения

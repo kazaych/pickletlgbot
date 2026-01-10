@@ -661,7 +661,28 @@ func (h *Handlers) handleAdminEventModeration(ctx context.Context, cb *CallbackQ
 		return
 	}
 
-	text, keyboard := h.formatter.FormatPendingRegistrations(evt.Name, pending)
+	// Получаем данные пользователей для каждой регистрации
+	registrationsWithUsers := make([]RegistrationWithUser, 0, len(pending))
+	for _, reg := range pending {
+		usr, err := h.userService.GetByTelegramID(ctx, reg.UserID)
+		if err != nil {
+			h.logger.Warn("failed to get user", "telegram_id", reg.UserID, "error", err)
+		}
+
+		var userName, userSurname string
+		if usr != nil {
+			userName = usr.Name
+			userSurname = usr.Surname
+		}
+
+		registrationsWithUsers = append(registrationsWithUsers, RegistrationWithUser{
+			Registration: reg,
+			UserName:     userName,
+			UserSurname:  userSurname,
+		})
+	}
+
+	text, keyboard := h.formatter.FormatPendingRegistrations(evt.Name, registrationsWithUsers)
 	if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
 		h.logger.Error("failed to edit message with pending registrations", "chat_id", cb.Message.ChatID, "error", err)
 	}
@@ -680,6 +701,7 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 
 	// Находим события с pending регистрациями
 	var eventsWithPending []event.Event
+	locationIDs := make(map[location.LocationID]bool)
 	for _, evt := range allEvents {
 		pending, err := h.eventService.ListPendingRegistrations(ctx, evt.ID)
 		if err != nil {
@@ -687,6 +709,16 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 		}
 		if len(pending) > 0 {
 			eventsWithPending = append(eventsWithPending, evt)
+			locationIDs[evt.LocationID] = true
+		}
+	}
+
+	// Загружаем названия локаций
+	locationNames := make(map[location.LocationID]string)
+	for locID := range locationIDs {
+		loc, err := h.locationService.Get(ctx, locID)
+		if err == nil && loc != nil {
+			locationNames[locID] = loc.Name
 		}
 	}
 
@@ -707,10 +739,33 @@ func (h *Handlers) handleAdminModerationList(ctx context.Context, cb *CallbackQu
 	var rows [][]InlineKeyboardButton
 	for _, evt := range eventsWithPending {
 		pending, _ := h.eventService.ListPendingRegistrations(ctx, evt.ID)
-		text += fmt.Sprintf("📅 %s (%d заявок)\n", evt.Name, len(pending))
+
+		// Получаем название локации
+		locationName := locationNames[evt.LocationID]
+		if locationName == "" {
+			locationName = string(evt.LocationID)
+		}
+
+		// Форматируем дату и время
+		dateStr := evt.Date.Format("02.01.2006")
+		timeStr := evt.Date.Format("15:04")
+
+		// Формируем текст с информацией о событии
+		text += fmt.Sprintf("📅 %s\n", evt.Name)
+		text += fmt.Sprintf("📍 %s\n", locationName)
+		text += fmt.Sprintf("🗓️ %s в %s\n", dateStr, timeStr)
+		text += fmt.Sprintf("⏳ %d заявок\n\n", len(pending))
+
+		// Формируем текст кнопки с информацией
+		buttonText := fmt.Sprintf("%s | %s | %s (%d)", evt.Name, locationName, timeStr, len(pending))
+		// Ограничиваем длину текста кнопки (Telegram рекомендует до 64 символов)
+		if len(buttonText) > 60 {
+			buttonText = buttonText[:57] + "..."
+		}
+
 		rows = append(rows, NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData(
-				fmt.Sprintf("📅 %s (%d)", evt.Name, len(pending)),
+				buttonText,
 				fmt.Sprintf("admin:event:moderation:%s", string(evt.ID)),
 			),
 		))
@@ -745,7 +800,19 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 
 		for _, evt := range allEvents {
 			if reg, exists := evt.Registrations[userID]; exists && reg.Status == event.RegistrationStatusPending {
-				text, keyboard := h.formatter.FormatRegistrationModeration(evt.Name, userID, string(evt.ID))
+				// Получаем данные пользователя для отображения имени и фамилии
+				usr, err := h.userService.GetByTelegramID(ctx, userID)
+				if err != nil {
+					h.logger.Error("failed to get user", "user_id", userID, "error", err)
+				}
+
+				var userName, userSurname string
+				if usr != nil {
+					userName = usr.Name
+					userSurname = usr.Surname
+				}
+
+				text, keyboard := h.formatter.FormatRegistrationModeration(evt.Name, userID, userName, userSurname, string(evt.ID))
 				if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
 					h.logger.Error("failed to edit message with registration moderation", "chat_id", cb.Message.ChatID, "error", err)
 				}
@@ -762,7 +829,13 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 		fmt.Sscanf(parts[4], "%d", &userID)
 
 		if parts[2] == "approve" {
-			err := h.eventService.ApproveRegistration(ctx, eventID, userID)
+			// Получаем данные пользователя для вывода имени и фамилии
+			usr, err := h.userService.GetByTelegramID(ctx, userID)
+			if err != nil {
+				h.logger.Error("failed to get user", "user_id", userID, "error", err)
+			}
+
+			err = h.eventService.ApproveRegistration(ctx, eventID, userID)
 			if err != nil {
 				h.logger.Error("failed to approve registration", "event_id", string(eventID), "user_id", userID, "error", err)
 				if sendErr := h.client.SendMessage(cb.Message.ChatID, fmt.Sprintf("❌ Ошибка подтверждения: %v", err)); sendErr != nil {
@@ -770,7 +843,14 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 				}
 				return
 			}
-			if err := h.client.SendMessage(cb.Message.ChatID, "✅ Регистрация подтверждена"); err != nil {
+
+			// Формируем сообщение с именем и фамилией пользователя
+			message := "✅ Регистрация подтверждена"
+			if usr != nil {
+				message = fmt.Sprintf("✅ Регистрация подтверждена\n\n👤 Пользователь: %s %s", usr.Name, usr.Surname)
+			}
+
+			if err := h.client.SendMessage(cb.Message.ChatID, message); err != nil {
 				h.logger.Error("failed to send success message", "chat_id", cb.Message.ChatID, "error", err)
 			}
 		} else {
@@ -791,7 +871,29 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 		evt, err := h.eventService.Get(ctx, eventID)
 		if err == nil && evt != nil {
 			pending, _ := h.eventService.ListPendingRegistrations(ctx, eventID)
-			text, keyboard := h.formatter.FormatPendingRegistrations(evt.Name, pending)
+
+			// Получаем данные пользователей для каждой регистрации
+			registrationsWithUsers := make([]RegistrationWithUser, 0, len(pending))
+			for _, reg := range pending {
+				usr, err := h.userService.GetByTelegramID(ctx, reg.UserID)
+				if err != nil {
+					h.logger.Warn("failed to get user", "telegram_id", reg.UserID, "error", err)
+				}
+
+				var userName, userSurname string
+				if usr != nil {
+					userName = usr.Name
+					userSurname = usr.Surname
+				}
+
+				registrationsWithUsers = append(registrationsWithUsers, RegistrationWithUser{
+					Registration: reg,
+					UserName:     userName,
+					UserSurname:  userSurname,
+				})
+			}
+
+			text, keyboard := h.formatter.FormatPendingRegistrations(evt.Name, registrationsWithUsers)
 			if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
 				h.logger.Error("failed to edit message with pending registrations", "chat_id", cb.Message.ChatID, "error", err)
 			}

@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	"pickletlgbot/internal/domain/event"
@@ -63,13 +62,11 @@ func (r *eventRepository) List(ctx context.Context) ([]event.Event, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Загружаем регистрации для каждого события
 		registrations, err := r.loadRegistrations(ctx, event.EventID(m.EventID))
 		if err != nil {
 			return nil, err
 		}
 		evt.Registrations = registrations
-		// Пересчитываем Players и Remaining на основе approved регистраций
 		r.recalculatePlayersAndRemaining(evt)
 		events[i] = *evt
 	}
@@ -90,13 +87,11 @@ func (r *eventRepository) ListByLocation(ctx context.Context, locationID locatio
 		if err != nil {
 			return nil, err
 		}
-		// Загружаем регистрации для каждого события
 		registrations, err := r.loadRegistrations(ctx, event.EventID(m.EventID))
 		if err != nil {
 			return nil, err
 		}
 		evt.Registrations = registrations
-		// Пересчитываем Players и Remaining на основе approved регистраций
 		r.recalculatePlayersAndRemaining(evt)
 		events[i] = *evt
 	}
@@ -104,7 +99,6 @@ func (r *eventRepository) ListByLocation(ctx context.Context, locationID locatio
 }
 
 func (r *eventRepository) ListByUser(ctx context.Context, userID int64) ([]event.Event, error) {
-	// Ищем события через таблицу регистраций
 	var registrations []models.EventRegistrationGORM
 	if err := r.db.WithContext(ctx).
 		Where("user_id = ? AND deleted_at IS NULL", userID).
@@ -112,7 +106,6 @@ func (r *eventRepository) ListByUser(ctx context.Context, userID int64) ([]event
 		return nil, err
 	}
 
-	// Собираем уникальные event_id
 	eventIDs := make(map[string]bool)
 	for _, reg := range registrations {
 		eventIDs[reg.EventID] = true
@@ -122,7 +115,6 @@ func (r *eventRepository) ListByUser(ctx context.Context, userID int64) ([]event
 		return []event.Event{}, nil
 	}
 
-	// Загружаем события
 	var eventIDList []string
 	for id := range eventIDs {
 		eventIDList = append(eventIDList, id)
@@ -141,16 +133,12 @@ func (r *eventRepository) ListByUser(ctx context.Context, userID int64) ([]event
 		if err != nil {
 			continue
 		}
-
-		// Загружаем регистрации для этого события
 		registrations, err := r.loadRegistrations(ctx, event.EventID(m.EventID))
 		if err != nil {
 			continue
 		}
 		evt.Registrations = registrations
-		// Пересчитываем Players и Remaining на основе approved регистраций
 		r.recalculatePlayersAndRemaining(evt)
-
 		userEvents = append(userEvents, *evt)
 	}
 	return userEvents, nil
@@ -162,7 +150,6 @@ func (r *eventRepository) Save(ctx context.Context, evt *event.Event) error {
 		return err
 	}
 
-	// Используем FirstOrCreate с Assign для создания или обновления (как в location_repository)
 	err = r.db.WithContext(ctx).
 		Where("event_id = ?", string(evt.ID)).
 		Assign(model).
@@ -172,25 +159,21 @@ func (r *eventRepository) Save(ctx context.Context, evt *event.Event) error {
 		return err
 	}
 
-	// Сохраняем регистрации в отдельной таблице
 	return r.saveRegistrations(ctx, evt.ID, evt.Registrations)
 }
 
 func (r *eventRepository) Delete(ctx context.Context, id event.EventID) error {
-	// Удаляем регистрации
 	if err := r.db.WithContext(ctx).
 		Where("event_id = ?", string(id)).
 		Delete(&models.EventRegistrationGORM{}).Error; err != nil {
 		return err
 	}
 
-	// Удаляем событие
 	return r.db.WithContext(ctx).
 		Where("event_id = ?", string(id)).
 		Delete(&models.EventGORM{}).Error
 }
 
-// modelToDomain конвертирует GORM модель в доменную модель
 func (r *eventRepository) modelToDomain(model *models.EventGORM) (*event.Event, error) {
 	evt := &event.Event{
 		ID:          event.EventID(model.EventID),
@@ -206,26 +189,12 @@ func (r *eventRepository) modelToDomain(model *models.EventGORM) (*event.Event, 
 		UpdatedAt:   model.UpdatedAt,
 	}
 
-	// Парсим Players из JSON
-	if model.Players != "" {
-		var players []int64
-		if err := json.Unmarshal([]byte(model.Players), &players); err != nil {
-			// Если ошибка, оставляем пустым
-			evt.Players = []int64{}
-		} else {
-			evt.Players = players
-		}
-	} else {
-		evt.Players = []int64{}
-	}
-
-	// Registrations загружаются отдельно через loadRegistrations
+	evt.Players = []int64{}
 	evt.Registrations = make(map[int64]event.EventRegistration)
 
 	return evt, nil
 }
 
-// domainToModel конвертирует доменную модель в GORM модель
 func (r *eventRepository) domainToModel(evt *event.Event) (*models.EventGORM, error) {
 	model := &models.EventGORM{
 		EventID:     string(evt.ID),
@@ -241,25 +210,13 @@ func (r *eventRepository) domainToModel(evt *event.Event) (*models.EventGORM, er
 		UpdatedAt:   evt.UpdatedAt,
 	}
 
-	// Сериализуем Players в JSON
-	if len(evt.Players) > 0 {
-		playersJSON, err := json.Marshal(evt.Players)
-		if err != nil {
-			return nil, err
-		}
-		model.Players = string(playersJSON)
-	} else {
-		model.Players = "[]"
-	}
-
-	// Registrations сохраняются отдельно через saveRegistrations
 	return model, nil
 }
 
-// loadRegistrations загружает регистрации из отдельной таблицы
 func (r *eventRepository) loadRegistrations(ctx context.Context, eventID event.EventID) (map[int64]event.EventRegistration, error) {
 	var regModels []models.EventRegistrationGORM
 	if err := r.db.WithContext(ctx).
+		Preload("User").
 		Where("event_id = ? AND deleted_at IS NULL", string(eventID)).
 		Find(&regModels).Error; err != nil {
 		return nil, err
@@ -267,8 +224,9 @@ func (r *eventRepository) loadRegistrations(ctx context.Context, eventID event.E
 
 	registrations := make(map[int64]event.EventRegistration)
 	for _, regModel := range regModels {
-		registrations[regModel.UserID] = event.EventRegistration{
-			UserID:    regModel.UserID,
+		telegramID := regModel.User.TelegramID
+		registrations[telegramID] = event.EventRegistration{
+			UserID:    telegramID,
 			Status:    event.RegistrationStatus(regModel.Status),
 			CreatedAt: regModel.CreatedAt,
 			UpdatedAt: regModel.UpdatedAt,
@@ -278,9 +236,7 @@ func (r *eventRepository) loadRegistrations(ctx context.Context, eventID event.E
 	return registrations, nil
 }
 
-// recalculatePlayersAndRemaining пересчитывает Players и Remaining на основе approved регистраций
 func (r *eventRepository) recalculatePlayersAndRemaining(evt *event.Event) {
-	// Собираем список approved пользователей
 	approvedPlayers := make([]int64, 0)
 	for userID, reg := range evt.Registrations {
 		if reg.Status == event.RegistrationStatusApproved {
@@ -288,7 +244,6 @@ func (r *eventRepository) recalculatePlayersAndRemaining(evt *event.Event) {
 		}
 	}
 
-	// Обновляем Players и Remaining
 	evt.Players = approvedPlayers
 	evt.Remaining = evt.MaxPlayers - len(approvedPlayers)
 	if evt.Remaining < 0 {
@@ -296,62 +251,99 @@ func (r *eventRepository) recalculatePlayersAndRemaining(evt *event.Event) {
 	}
 }
 
-// saveRegistrations сохраняет регистрации в отдельную таблицу
 func (r *eventRepository) saveRegistrations(ctx context.Context, eventID event.EventID, registrations map[int64]event.EventRegistration) error {
-	// Получаем текущие регистрации из БД
+	// Используем Unscoped() чтобы найти и soft-deleted записи
 	var existingRegs []models.EventRegistrationGORM
-	if err := r.db.WithContext(ctx).
+	if err := r.db.WithContext(ctx).Unscoped().
+		Preload("User").
 		Where("event_id = ?", string(eventID)).
 		Find(&existingRegs).Error; err != nil {
 		return err
 	}
 
-	// Создаем карту существующих регистраций
-	existingMap := make(map[int64]bool)
+	existingMap := make(map[int64]int64) // telegramID -> userID
+	deletedMap := make(map[int64]bool)   // telegramID -> isDeleted
 	for _, reg := range existingRegs {
-		existingMap[reg.UserID] = true
+		existingMap[reg.User.TelegramID] = reg.UserID
+		// Проверяем, является ли запись soft-deleted
+		if reg.DeletedAt.Valid {
+			deletedMap[reg.User.TelegramID] = true
+		}
 	}
 
-	// Сохраняем или обновляем регистрации
-	for userID, reg := range registrations {
+	for telegramID, reg := range registrations {
+		var user models.UserGORM
+		if err := r.db.WithContext(ctx).
+			Where("telegram_id = ?", telegramID).
+			First(&user).Error; err != nil {
+			continue
+		}
+
 		regModel := &models.EventRegistrationGORM{
 			EventID:   string(eventID),
-			UserID:    userID,
+			UserID:    user.ID,
 			Status:    string(reg.Status),
 			CreatedAt: reg.CreatedAt,
 			UpdatedAt: reg.UpdatedAt,
 		}
 
-		if existingMap[userID] {
-			// Обновляем существующую
-			if err := r.db.WithContext(ctx).
-				Model(&models.EventRegistrationGORM{}).
-				Where("event_id = ? AND user_id = ?", string(eventID), userID).
-				Updates(regModel).Error; err != nil {
-				return err
+		if userID, exists := existingMap[telegramID]; exists {
+			// Запись существует (возможно, soft-deleted)
+			if deletedMap[telegramID] {
+				// Восстанавливаем soft-deleted запись
+				if err := r.db.WithContext(ctx).Unscoped().
+					Model(&models.EventRegistrationGORM{}).
+					Where("event_id = ? AND user_id = ?", string(eventID), userID).
+					Updates(map[string]interface{}{
+						"status":     regModel.Status,
+						"updated_at": regModel.UpdatedAt,
+						"deleted_at": nil, // Восстанавливаем запись
+					}).Error; err != nil {
+					return err
+				}
+			} else {
+				// Обновляем существующую запись
+				if err := r.db.WithContext(ctx).
+					Model(&models.EventRegistrationGORM{}).
+					Where("event_id = ? AND user_id = ?", string(eventID), userID).
+					Updates(regModel).Error; err != nil {
+					return err
+				}
 			}
 		} else {
-			// Создаем новую
+			// Создаем новую запись
 			if err := r.db.WithContext(ctx).Create(regModel).Error; err != nil {
 				return err
 			}
 		}
 	}
 
-	// Удаляем регистрации, которых нет в новой карте
-	var userIDsToKeep []int64
-	for userID := range registrations {
-		userIDsToKeep = append(userIDsToKeep, userID)
+	var telegramIDsToKeep []int64
+	for telegramID := range registrations {
+		telegramIDsToKeep = append(telegramIDsToKeep, telegramID)
 	}
 
-	if len(userIDsToKeep) > 0 {
+	if len(telegramIDsToKeep) > 0 {
+		var users []models.UserGORM
 		if err := r.db.WithContext(ctx).
-			Where("event_id = ? AND user_id NOT IN ?", string(eventID), userIDsToKeep).
-			Delete(&models.EventRegistrationGORM{}).Error; err != nil {
+			Where("telegram_id IN ?", telegramIDsToKeep).
+			Find(&users).Error; err != nil {
 			return err
 		}
+
+		var userIDsToKeep []int64
+		for _, user := range users {
+			userIDsToKeep = append(userIDsToKeep, user.ID)
+		}
+
+		if len(userIDsToKeep) > 0 {
+			if err := r.db.WithContext(ctx).
+				Where("event_id = ? AND user_id NOT IN ?", string(eventID), userIDsToKeep).
+				Delete(&models.EventRegistrationGORM{}).Error; err != nil {
+				return err
+			}
+		}
 	} else {
-		// Если нет регистраций, удаляем все для этого события
 		if err := r.db.WithContext(ctx).
 			Where("event_id = ?", string(eventID)).
 			Delete(&models.EventRegistrationGORM{}).Error; err != nil {
