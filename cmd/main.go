@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -11,9 +10,7 @@ import (
 	"pickletlgbot/internal/domain/user"
 	"pickletlgbot/internal/models"
 	"pickletlgbot/repositories/postgres"
-	"sync"
 	"syscall"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
@@ -92,40 +89,11 @@ func main() {
 	// Получаем канал обновлений
 	updates := tgClient.GetUpdatesChan()
 
-	// Создаем контекст для graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// WaitGroup для отслеживания активных горутин
-	var wg sync.WaitGroup
-
 	// Канал для сигналов завершения
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// Горутина для обработки сигналов завершения
-	go func() {
-		<-sigChan
-		log.Println("🛑 Получен сигнал завершения, ожидаем завершения обработки обновлений...")
-		cancel() // Отменяем контекст
-
-		// Даем время на завершение активных обработок (максимум 30 секунд)
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			log.Println("✅ Все обновления обработаны, завершаем работу")
-		case <-time.After(30 * time.Second):
-			log.Println("⚠️  Таймаут ожидания, принудительное завершение")
-		}
-		os.Exit(0)
-	}()
-
-	// Обрабатываем обновления
+	// Обрабатываем обновления синхронно
 	for {
 		select {
 		case update, ok := <-updates:
@@ -133,15 +101,9 @@ func main() {
 				log.Println("Канал обновлений закрыт")
 				return
 			}
-			wg.Add(1) // Увеличиваем счетчик активных горутин
-			go func(u *telegram.Update) {
-				defer wg.Done() // Уменьшаем счетчик при завершении
-				handlers.HandleUpdate(u)
-			}(update)
-		case <-ctx.Done():
-			log.Println("Контекст отменен, прекращаем обработку новых обновлений")
-			// Ждем завершения всех активных обработок
-			wg.Wait()
+			handlers.HandleUpdate(update)
+		case <-sigChan:
+			log.Println("🛑 Получен сигнал завершения, завершаем работу")
 			return
 		}
 	}

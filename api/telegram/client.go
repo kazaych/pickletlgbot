@@ -60,10 +60,10 @@ func (c *Client) GetUpdatesChan() <-chan *Update {
 
 	updateChan := make(chan *Update)
 	go func() {
+		defer close(updateChan)
 		for update := range updates {
 			updateChan <- convertUpdate(update)
 		}
-		close(updateChan)
 	}()
 
 	return updateChan
