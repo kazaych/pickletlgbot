@@ -47,14 +47,14 @@ func (r *locationRepository) List(ctx context.Context) ([]location.Location, err
 	}
 
 	locations := make([]location.Location, 0, len(models))
-	for i, m := range models {
-		locations[i] = location.Location{
+	for _, m := range models {
+		locations = append(locations, location.Location{
 			ID:            location.LocationID(m.LocationID),
 			Name:          m.Name,
 			Address:       m.Address,
 			Description:   m.Description,
 			AddressMapURL: m.AddressMapURL,
-		}
+		})
 	}
 	return locations, nil
 }

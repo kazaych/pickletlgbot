@@ -82,7 +82,7 @@ func (r *eventRepository) ListByLocation(ctx context.Context, locationID locatio
 	}
 
 	events := make([]event.Event, 0, len(models))
-	for i, m := range models {
+	for _, m := range models {
 		evt, err := r.modelToDomain(&m)
 		if err != nil {
 			return nil, err
@@ -93,7 +93,7 @@ func (r *eventRepository) ListByLocation(ctx context.Context, locationID locatio
 		}
 		evt.Registrations = registrations
 		r.recalculatePlayersAndRemaining(evt)
-		events[i] = *evt
+		events = append(events, *evt)
 	}
 	return events, nil
 }
