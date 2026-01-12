@@ -30,7 +30,7 @@ func (h *Handlers) handleLocations(ctx context.Context, cb *CallbackQuery) {
 	}
 
 	// Конвертируем []Location в []*Location для форматтера
-	locationPtrs := make([]*location.Location, len(locations))
+	locationPtrs := make([]*location.Location, 0, len(locations))
 	for i := range locations {
 		locationPtrs[i] = &locations[i]
 	}

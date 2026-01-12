@@ -81,7 +81,7 @@ func (r *eventRepository) ListByLocation(ctx context.Context, locationID locatio
 		return nil, err
 	}
 
-	events := make([]event.Event, len(models))
+	events := make([]event.Event, 0, len(models))
 	for i, m := range models {
 		evt, err := r.modelToDomain(&m)
 		if err != nil {

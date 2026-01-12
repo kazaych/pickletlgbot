@@ -46,7 +46,7 @@ func (r *locationRepository) List(ctx context.Context) ([]location.Location, err
 		return nil, err
 	}
 
-	locations := make([]location.Location, len(models))
+	locations := make([]location.Location, 0, len(models))
 	for i, m := range models {
 		locations[i] = location.Location{
 			ID:            location.LocationID(m.LocationID),
