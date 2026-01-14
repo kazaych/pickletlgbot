@@ -32,6 +32,14 @@ type UserRegistrationState struct {
 	FirstName string
 }
 
+// LocationCreationState хранит состояние создания локации
+type LocationCreationState struct {
+	Step          string // "name", "address", "map_url"
+	Name          string
+	Address       string
+	AddressMapURL string
+}
+
 // Handlers обрабатывает обновления от Telegram и маппит их в вызовы бизнес-сервисов
 type Handlers struct {
 	locationService location.LocationService
@@ -45,6 +53,8 @@ type Handlers struct {
 	creatingEvents map[int64]*EventCreationState
 	// Временное хранилище для состояния регистрации пользователей
 	registeringUsers map[int64]*UserRegistrationState
+	// Временное хранилище для состояния создания локаций
+	creatingLocations map[int64]*LocationCreationState
 }
 
 // NewHandlers создает новый набор обработчиков
@@ -57,15 +67,16 @@ func NewHandlers(
 	adminIDs := parseAdminIDs()
 	logger := slog.Default()
 	return &Handlers{
-		locationService:  locationService,
-		eventService:     eventService,
-		userService:      userService,
-		client:           client,
-		formatter:        NewFormatter(),
-		adminIDs:         adminIDs,
-		logger:           logger,
-		creatingEvents:   make(map[int64]*EventCreationState),
-		registeringUsers: make(map[int64]*UserRegistrationState),
+		locationService:   locationService,
+		eventService:      eventService,
+		userService:       userService,
+		client:            client,
+		formatter:         NewFormatter(),
+		adminIDs:          adminIDs,
+		logger:            logger,
+		creatingEvents:    make(map[int64]*EventCreationState),
+		registeringUsers:  make(map[int64]*UserRegistrationState),
+		creatingLocations: make(map[int64]*LocationCreationState),
 	}
 }
 
@@ -107,13 +118,16 @@ func (h *Handlers) HandleMessage(msg *Message) {
 
 		// Если это не команда, проверяем, не создается ли что-то админом
 		if h.isAdmin(msg.From.ID) && !strings.HasPrefix(msg.Text, "/") {
+			// Проверяем, не создается ли локация
+			if state := h.getCreatingLocationState(msg.ChatID); state != nil {
+				h.handleAdminCreateLocationStep(ctx, msg, state)
+				return
+			}
 			// Проверяем, не создается ли событие
 			if state := h.getCreatingEventState(msg.ChatID); state != nil {
 				h.handleAdminCreateEventStep(ctx, msg, state)
 				return
 			}
-			// Иначе создаем локацию
-			h.handleAdminCreateLocation(ctx, msg, msg.Text)
 		} else {
 			if err := h.client.SendMessage(msg.ChatID, "Нажмите /start для меню"); err != nil {
 				h.logger.Error("failed to send start prompt", "chat_id", msg.ChatID, "error", err)
@@ -212,6 +226,16 @@ func (h *Handlers) isCreatingEvent(chatID int64) bool {
 // getUserRegistrationState возвращает состояние регистрации пользователя
 func (h *Handlers) getUserRegistrationState(userID int64) *UserRegistrationState {
 	return h.registeringUsers[userID]
+}
+
+// getCreatingLocationState возвращает состояние создания локации для чата
+func (h *Handlers) getCreatingLocationState(chatID int64) *LocationCreationState {
+	return h.creatingLocations[chatID]
+}
+
+// clearCreatingLocationState очищает состояние создания локации
+func (h *Handlers) clearCreatingLocationState(chatID int64) {
+	delete(h.creatingLocations, chatID)
 }
 
 // setUserRegistrationState устанавливает состояние регистрации пользователя

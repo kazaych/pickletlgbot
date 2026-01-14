@@ -33,7 +33,11 @@ func (h *Handlers) handleAdminCommand(msg *Message) {
 			h.logger.Error("failed to send admin menu", "chat_id", msg.ChatID, "error", err)
 		}
 	case "/admin_create_location":
-		text := h.formatter.FormatCreateLocationPrompt()
+		// Создаем состояние для создания локации
+		h.creatingLocations[msg.ChatID] = &LocationCreationState{
+			Step: "name",
+		}
+		text := "📍 Создание новой локации\n\nВведите название локации:"
 		if err := h.client.SendMessage(msg.ChatID, text); err != nil {
 			h.logger.Error("failed to send create location prompt", "chat_id", msg.ChatID, "error", err)
 		}
@@ -45,18 +49,8 @@ func (h *Handlers) handleAdminCommand(msg *Message) {
 		}
 
 	default:
-		if strings.HasPrefix(msg.Text, "/admin_create_location ") {
-			input := strings.TrimPrefix(msg.Text, "/admin_create_location ")
-			input = strings.TrimSpace(input)
-			if input == "" {
-				if err := h.client.SendMessage(msg.ChatID, "❌ Укажите данные локации\nИспользование: /admin_create_location <название>|<адрес>\nИли: /admin_create_location <название>"); err != nil {
-					h.logger.Error("failed to send location data required message", "chat_id", msg.ChatID, "error", err)
-				}
-				return
-			}
-			ctx := context.Background()
-			h.handleAdminCreateLocation(ctx, msg, input)
-		}
+		// Команда /admin_create_location с параметрами больше не поддерживается
+		// Используйте /admin_create_location без параметров для пошагового создания
 	}
 }
 
@@ -69,10 +63,7 @@ func (h *Handlers) handleAdminCallback(ctx context.Context, cb *CallbackQuery) {
 			h.logger.Error("failed to edit message with admin locations menu", "chat_id", cb.Message.ChatID, "error", err)
 		}
 	case "admin:create_location":
-		text := h.formatter.FormatCreateLocationPrompt()
-		if err := h.client.SendMessage(cb.Message.ChatID, text); err != nil {
-			h.logger.Error("failed to send create location prompt", "chat_id", cb.Message.ChatID, "error", err)
-		}
+		h.handleAdminStartCreateLocation(ctx, cb)
 	case "admin:delete_location":
 		h.handleAdminDeleteLocation(ctx, cb)
 	case "admin:list_locations":
@@ -415,58 +406,102 @@ func (h *Handlers) handleAdminEnterPrice(ctx context.Context, msg *Message, stat
 	}
 }
 
-// handleAdminCreateLocation обрабатывает создание локации администратором
-// Формат входных данных: "Название|Адрес|URL" или "Название|Адрес" или "Название"
-func (h *Handlers) handleAdminCreateLocation(ctx context.Context, msg *Message, input string) {
-
-	// Парсим название, адрес и URL (разделитель: |)
-	var name, address, addressUrl string
-	parts := strings.Split(input, "|")
-
-	if len(parts) >= 1 {
-		name = strings.TrimSpace(parts[0])
-	}
-	if len(parts) >= 2 {
-		address = strings.TrimSpace(parts[1])
-	}
-	if len(parts) >= 3 {
-		addressUrl = strings.TrimSpace(parts[2])
+// handleAdminStartCreateLocation начинает процесс создания локации
+func (h *Handlers) handleAdminStartCreateLocation(ctx context.Context, cb *CallbackQuery) {
+	// Создаем состояние для создания локации
+	h.creatingLocations[cb.Message.ChatID] = &LocationCreationState{
+		Step: "name",
 	}
 
-	// Если нет разделителя |, проверяем перенос строки
-	if !strings.Contains(input, "|") && strings.Contains(input, "\n") {
-		lines := strings.SplitN(input, "\n", 3)
-		if len(lines) >= 1 {
-			name = strings.TrimSpace(lines[0])
-		}
-		if len(lines) >= 2 {
-			address = strings.TrimSpace(lines[1])
-		}
-		if len(lines) >= 3 {
-			addressUrl = strings.TrimSpace(lines[2])
+	text := "📍 Создание новой локации\n\nВведите название локации:"
+	if err := h.client.EditMessageText(cb.Message.ChatID, cb.Message.MessageID, text); err != nil {
+		h.logger.Error("failed to edit message for location name prompt", "chat_id", cb.Message.ChatID, "error", err)
+	}
+}
+
+// handleAdminCreateLocationStep обрабатывает шаги создания локации
+func (h *Handlers) handleAdminCreateLocationStep(ctx context.Context, msg *Message, state *LocationCreationState) {
+	switch state.Step {
+	case "name":
+		h.handleAdminEnterLocationName(ctx, msg, state)
+	case "address":
+		h.handleAdminEnterLocationAddress(ctx, msg, state)
+	case "map_url":
+		h.handleAdminEnterLocationMapURL(ctx, msg, state)
+	default:
+		// Неожиданный шаг, очищаем состояние
+		h.clearCreatingLocationState(msg.ChatID)
+		if err := h.client.SendMessage(msg.ChatID, "❌ Ошибка процесса создания. Начните заново."); err != nil {
+			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", err)
 		}
 	}
+}
 
+// handleAdminEnterLocationName обрабатывает ввод названия локации
+func (h *Handlers) handleAdminEnterLocationName(ctx context.Context, msg *Message, state *LocationCreationState) {
+	name := strings.TrimSpace(msg.Text)
 	if name == "" {
-		if err := h.client.SendMessage(msg.ChatID, "❌ Название локации не может быть пустым"); err != nil {
+		if err := h.client.SendMessage(msg.ChatID, "❌ Название локации не может быть пустым. Введите название:"); err != nil {
 			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", err)
 		}
 		return
 	}
 
-	loc, err := h.locationService.Create(ctx, location.CreateLocationInput{
-		Name:          name,
-		Address:       address,
-		AddressMapURL: addressUrl,
-		Description:   "", // Описание можно добавить позже
-	})
-	if err != nil {
-		h.logger.Error("failed to create location", "location_name", name, "chat_id", msg.ChatID, "error", err)
-		if sendErr := h.client.SendMessage(msg.ChatID, fmt.Sprintf("❌ Ошибка создания локации: %v", err)); sendErr != nil {
-			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", sendErr)
+	state.Name = name
+	state.Step = "address"
+
+	text := fmt.Sprintf("📍 Название: %s\n\nВведите адрес локации:", name)
+	if err := h.client.SendMessage(msg.ChatID, text); err != nil {
+		h.logger.Error("failed to send location address prompt", "chat_id", msg.ChatID, "error", err)
+	}
+}
+
+// handleAdminEnterLocationAddress обрабатывает ввод адреса локации
+func (h *Handlers) handleAdminEnterLocationAddress(ctx context.Context, msg *Message, state *LocationCreationState) {
+	address := strings.TrimSpace(msg.Text)
+	if address == "" {
+		if err := h.client.SendMessage(msg.ChatID, "❌ Адрес локации не может быть пустым. Введите адрес:"); err != nil {
+			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", err)
 		}
 		return
 	}
+
+	state.Address = address
+	state.Step = "map_url"
+
+	text := fmt.Sprintf("📍 Название: %s\n📍 Адрес: %s\n\nВведите ссылку на карту (или отправьте \"-\" чтобы пропустить):", state.Name, address)
+	if err := h.client.SendMessage(msg.ChatID, text); err != nil {
+		h.logger.Error("failed to send location map URL prompt", "chat_id", msg.ChatID, "error", err)
+	}
+}
+
+// handleAdminEnterLocationMapURL обрабатывает ввод ссылки на карту и завершает создание локации
+func (h *Handlers) handleAdminEnterLocationMapURL(ctx context.Context, msg *Message, state *LocationCreationState) {
+	addressUrl := strings.TrimSpace(msg.Text)
+	if addressUrl == "-" || addressUrl == "" {
+		addressUrl = ""
+	}
+
+	state.AddressMapURL = addressUrl
+
+	// Создаем локацию
+	loc, err := h.locationService.Create(ctx, location.CreateLocationInput{
+		Name:          state.Name,
+		Address:       state.Address,
+		AddressMapURL: state.AddressMapURL,
+		Description:   "", // Описание можно добавить позже
+	})
+	if err != nil {
+		h.logger.Error("failed to create location", "location_name", state.Name, "chat_id", msg.ChatID, "error", err)
+		if sendErr := h.client.SendMessage(msg.ChatID, fmt.Sprintf("❌ Ошибка создания локации: %v", err)); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", sendErr)
+		}
+		h.clearCreatingLocationState(msg.ChatID)
+		return
+	}
+
+	// Очищаем состояние
+	h.clearCreatingLocationState(msg.ChatID)
 
 	text, keyboard := h.formatter.FormatLocationCreated(loc)
 	if err := h.client.SendMessageWithKeyboard(msg.ChatID, text, keyboard); err != nil {
