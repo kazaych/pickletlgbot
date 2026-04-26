@@ -1,3 +1,3 @@
 package settings
 
-const KeyChannelID = "channel_id"
+const KeyChannelIDs = "channel_ids"
