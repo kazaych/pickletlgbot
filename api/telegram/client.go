@@ -69,6 +69,11 @@ func (c *Client) GetUpdatesChan() <-chan *Update {
 	return updateChan
 }
 
+// Username возвращает username бота (без @)
+func (c *Client) Username() string {
+	return c.bot.Self.UserName
+}
+
 // Update представляет обновление от Telegram
 type Update struct {
 	Message       *Message
@@ -77,10 +82,11 @@ type Update struct {
 
 // Message представляет сообщение от Telegram
 type Message struct {
-	ChatID    int64
-	MessageID int
-	Text      string
-	From      *User
+	ChatID            int64
+	MessageID         int
+	Text              string
+	From              *User
+	ForwardFromChatID int64 // ID канала, из которого переслано сообщение (0 если не пересылка)
 }
 
 // CallbackQuery представляет callback query от Telegram
@@ -159,12 +165,16 @@ func convertUpdate(update tgbotapi.Update) *Update {
 	result := &Update{}
 
 	if update.Message != nil {
-		result.Message = &Message{
+		msg := &Message{
 			ChatID:    update.Message.Chat.ID,
 			MessageID: update.Message.MessageID,
 			Text:      update.Message.Text,
 			From:      convertUser(update.Message.From),
 		}
+		if update.Message.ForwardFromChat != nil {
+			msg.ForwardFromChatID = update.Message.ForwardFromChat.ID
+		}
+		result.Message = msg
 	}
 
 	if update.CallbackQuery != nil {

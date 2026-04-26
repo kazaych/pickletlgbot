@@ -10,8 +10,21 @@ import (
 	"strings"
 )
 
-// handleStart обрабатывает команду /start
-func (h *Handlers) handleStart(msg *Message) {
+// handleStart обрабатывает команду /start, включая deep link /start event_<id>
+func (h *Handlers) handleStart(ctx context.Context, msg *Message) {
+	parts := strings.Fields(msg.Text)
+	if len(parts) == 2 && strings.HasPrefix(parts[1], "event_") {
+		eventIDStr := strings.TrimPrefix(parts[1], "event_")
+		evt, err := h.eventService.Get(ctx, event.EventID(eventIDStr))
+		if err == nil && evt != nil {
+			text, keyboard := h.formatter.FormatEventDetailsForUsers(evt, msg.From.ID)
+			if err := h.client.SendMessageWithKeyboard(msg.ChatID, text, keyboard); err != nil {
+				h.logger.Error("failed to send event details via deep link", "chat_id", msg.ChatID, "error", err)
+			}
+			return
+		}
+	}
+
 	text, keyboard := h.formatter.FormatMainMenu()
 	if err := h.client.SendMessageWithKeyboard(msg.ChatID, text, keyboard); err != nil {
 		h.logger.Error("failed to send main menu", "chat_id", msg.ChatID, "error", err)

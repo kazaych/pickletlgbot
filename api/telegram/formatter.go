@@ -92,6 +92,9 @@ func (f *Formatter) FormatAdminMenu() (string, *InlineKeyboardMarkup) {
 			NewInlineKeyboardButtonData("➕ Создать событие", "admin:create_event"),
 		),
 		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("🗑️ Удалить событие", "admin:delete_event"),
+		),
+		NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData("➕ Создать локацию", "admin:create_location"),
 		),
 		NewInlineKeyboardRow(
@@ -102,6 +105,9 @@ func (f *Formatter) FormatAdminMenu() (string, *InlineKeyboardMarkup) {
 		),
 		NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData("✅ Заявки на подтверждение", "admin:events:moderation"),
+		),
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("📢 Настроить канал", "admin:set_channel"),
 		),
 		NewInlineKeyboardRow(
 			NewInlineKeyboardButtonData("🏠 Главное меню", "back:main"),
@@ -573,6 +579,47 @@ func (f *Formatter) FormatEventDetailsForUsers(evt *event.Event, userID int64) (
 
 	keyboard := NewInlineKeyboardMarkup(rows...)
 	return text, keyboard
+}
+
+// FormatChannelEventAnnouncement форматирует анонс события для публикации в канал
+func (f *Formatter) FormatChannelEventAnnouncement(evt *event.Event, locationName, botUsername string) (string, *InlineKeyboardMarkup) {
+	typeEmoji := "🏋️"
+	typeName := "Тренировка"
+	if evt.Type == event.EventTypeCompetition {
+		typeEmoji = "🏆"
+		typeName = "Соревнование"
+	}
+
+	text := fmt.Sprintf("%s <b>%s</b>\n\n", typeEmoji, evt.Name)
+	text += fmt.Sprintf("📅 Тип: %s\n", typeName)
+	text += fmt.Sprintf("🗓️ Дата: %s\n", evt.Date.Format("02.01.2006 15:04"))
+	text += fmt.Sprintf("👥 Мест: %d\n", evt.MaxPlayers)
+	if locationName != "" {
+		text += fmt.Sprintf("📍 Место: %s\n", locationName)
+	}
+	if evt.Trainer != "" {
+		text += fmt.Sprintf("👨‍🏫 Тренер: %s\n", evt.Trainer)
+	}
+	if evt.Price > 0 {
+		text += fmt.Sprintf("💰 Стоимость: %d руб.\n", evt.Price)
+	}
+
+	deepLink := fmt.Sprintf("https://t.me/%s?start=event_%s", botUsername, string(evt.ID))
+	keyboard := NewInlineKeyboardMarkup(
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonURL("✅ Записаться", deepLink),
+		),
+	)
+	return text, keyboard
+}
+
+// FormatChannelEventCancelled форматирует уведомление об отмене события для канала
+func (f *Formatter) FormatChannelEventCancelled(evt *event.Event) string {
+	typeEmoji := "🏋️"
+	if evt.Type == event.EventTypeCompetition {
+		typeEmoji = "🏆"
+	}
+	return fmt.Sprintf("❌ <b>Событие отменено</b>\n\n%s %s\n🗓️ %s", typeEmoji, evt.Name, evt.Date.Format("02.01.2006 15:04"))
 }
 
 // UserWithStatus представляет пользователя со статусом регистрации

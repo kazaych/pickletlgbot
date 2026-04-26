@@ -88,6 +88,10 @@ func (h *Handlers) handleAdminCallback(ctx context.Context, cb *CallbackQuery) {
 		if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, text, keyboard); err != nil {
 			h.logger.Error("failed to edit message with admin menu", "chat_id", cb.Message.ChatID, "error", err)
 		}
+	case "admin:set_channel":
+		h.handleAdminSetChannelStart(cb)
+	case "admin:delete_event":
+		h.handleAdminDeleteEventList(ctx, cb)
 	default:
 		// Обработка динамических callback'ов для удаления (формат: admin:delete:{locationID})
 		if strings.HasPrefix(cb.Data, "admin:delete:") {
@@ -114,6 +118,10 @@ func (h *Handlers) handleAdminCallback(ctx context.Context, cb *CallbackQuery) {
 		// Обработка модерации регистрации (формат: admin:reg:{userID} или admin:reg:approve:{eventID}:{userID})
 		if strings.HasPrefix(cb.Data, "admin:reg:") {
 			h.handleAdminRegistrationModeration(ctx, cb)
+		}
+		// Обработка подтверждения удаления события (формат: admin:delete_event:confirm:{eventID})
+		if strings.HasPrefix(cb.Data, "admin:delete_event:confirm:") {
+			h.handleAdminConfirmDeleteEvent(ctx, cb)
 		}
 	}
 }
@@ -404,6 +412,9 @@ func (h *Handlers) handleAdminEnterPrice(ctx context.Context, msg *Message, stat
 	if err := h.client.SendMessageWithKeyboard(msg.ChatID, text, keyboard); err != nil {
 		h.logger.Error("failed to send event created message", "chat_id", msg.ChatID, "error", err)
 	}
+
+	// Публикуем анонс в канал (если настроен)
+	h.publishEventToChannel(ctx, evt)
 }
 
 // handleAdminStartCreateLocation начинает процесс создания локации
@@ -1023,5 +1034,183 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 			}
 		}
 		return
+	}
+}
+
+// publishEventToChannel публикует анонс события в настроенный канал
+func (h *Handlers) publishEventToChannel(ctx context.Context, evt *event.Event) {
+	channelID, err := h.settingsService.GetChannelID(ctx)
+	if err != nil || channelID == 0 {
+		return
+	}
+
+	var locationName string
+	if loc, err := h.locationService.Get(ctx, evt.LocationID); err == nil && loc != nil {
+		locationName = loc.Name
+	}
+
+	text, keyboard := h.formatter.FormatChannelEventAnnouncement(evt, locationName, h.client.Username())
+	if err := h.client.SendMessageWithKeyboard(channelID, text, keyboard); err != nil {
+		h.logger.Error("failed to publish event to channel", "channel_id", channelID, "event_id", string(evt.ID), "error", err)
+	}
+}
+
+// publishEventCancelledToChannel публикует уведомление об отмене события в канал
+func (h *Handlers) publishEventCancelledToChannel(ctx context.Context, evt *event.Event) {
+	channelID, err := h.settingsService.GetChannelID(ctx)
+	if err != nil || channelID == 0 {
+		return
+	}
+
+	text := h.formatter.FormatChannelEventCancelled(evt)
+	if err := h.client.SendMessage(channelID, text); err != nil {
+		h.logger.Error("failed to publish event cancellation to channel", "channel_id", channelID, "event_id", string(evt.ID), "error", err)
+	}
+}
+
+// handleAdminSetChannelStart начинает процесс настройки канала
+func (h *Handlers) handleAdminSetChannelStart(cb *CallbackQuery) {
+	h.settingChannel[cb.Message.ChatID] = true
+	text := "📢 Настройка канала для публикации событий\n\n" +
+		"Выберите способ:\n" +
+		"• <b>Переслать</b> любое сообщение из канала сюда\n" +
+		"• <b>Ввести ID</b> вручную (например: <code>-1001234567890</code>)\n\n" +
+		"Для отмены отправьте /cancel"
+	if err := h.client.EditMessageText(cb.Message.ChatID, cb.Message.MessageID, text); err != nil {
+		h.logger.Error("failed to edit message for channel setup", "chat_id", cb.Message.ChatID, "error", err)
+	}
+}
+
+// handleSetChannelInput обрабатывает ввод ID канала или пересланное сообщение
+func (h *Handlers) handleSetChannelInput(ctx context.Context, msg *Message) {
+	delete(h.settingChannel, msg.ChatID)
+
+	if msg.Text == "/cancel" {
+		text, keyboard := h.formatter.FormatAdminMenu()
+		if err := h.client.SendMessageWithKeyboard(msg.ChatID, text, keyboard); err != nil {
+			h.logger.Error("failed to send admin menu", "chat_id", msg.ChatID, "error", err)
+		}
+		return
+	}
+
+	var channelID int64
+
+	// Вариант 1: пересланное сообщение из канала
+	if msg.ForwardFromChatID != 0 {
+		channelID = msg.ForwardFromChatID
+	} else {
+		// Вариант 2: ручной ввод ID
+		id, err := strconv.ParseInt(strings.TrimSpace(msg.Text), 10, 64)
+		if err != nil {
+			keyboard := NewInlineKeyboardMarkup(
+				NewInlineKeyboardRow(
+					NewInlineKeyboardButtonData("🔙 В меню администратора", "admin:menu"),
+				),
+			)
+			if err := h.client.SendMessageWithKeyboard(msg.ChatID, "❌ Некорректный ID канала. Попробуйте ещё раз или перешлите сообщение из канала.", keyboard); err != nil {
+				h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", err)
+			}
+			return
+		}
+		channelID = id
+	}
+
+	if err := h.settingsService.SetChannelID(ctx, channelID); err != nil {
+		h.logger.Error("failed to save channel id", "channel_id", channelID, "error", err)
+		if sendErr := h.client.SendMessage(msg.ChatID, "❌ Ошибка сохранения канала"); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", sendErr)
+		}
+		return
+	}
+
+	keyboard := NewInlineKeyboardMarkup(
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("🔙 В меню администратора", "admin:menu"),
+		),
+	)
+	if err := h.client.SendMessageWithKeyboard(msg.ChatID, fmt.Sprintf("✅ Канал <code>%d</code> успешно настроен!", channelID), keyboard); err != nil {
+		h.logger.Error("failed to send success message", "chat_id", msg.ChatID, "error", err)
+	}
+}
+
+// handleAdminDeleteEventList показывает список событий для удаления
+func (h *Handlers) handleAdminDeleteEventList(ctx context.Context, cb *CallbackQuery) {
+	events, err := h.eventService.List(ctx)
+	if err != nil {
+		h.logger.Error("failed to list events for deletion", "chat_id", cb.Message.ChatID, "error", err)
+		if sendErr := h.client.SendMessage(cb.Message.ChatID, "❌ Ошибка получения списка событий"); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
+		}
+		return
+	}
+
+	if len(events) == 0 {
+		keyboard := NewInlineKeyboardMarkup(
+			NewInlineKeyboardRow(
+				NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
+			),
+		)
+		if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, "📋 Нет событий для удаления", keyboard); err != nil {
+			h.logger.Error("failed to edit message", "chat_id", cb.Message.ChatID, "error", err)
+		}
+		return
+	}
+
+	var rows [][]InlineKeyboardButton
+	for _, evt := range events {
+		label := fmt.Sprintf("🗑️ %s | %s", evt.Name, evt.Date.Format("02.01.2006 15:04"))
+		if len(label) > 60 {
+			label = label[:57] + "..."
+		}
+		rows = append(rows, NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData(label, fmt.Sprintf("admin:delete_event:confirm:%s", string(evt.ID))),
+		))
+	}
+	rows = append(rows, NewInlineKeyboardRow(
+		NewInlineKeyboardButtonData("🔙 Назад", "admin:menu"),
+	))
+
+	keyboard := NewInlineKeyboardMarkup(rows...)
+	if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID, "🗑️ Выберите событие для удаления:", keyboard); err != nil {
+		h.logger.Error("failed to edit message with event deletion list", "chat_id", cb.Message.ChatID, "error", err)
+	}
+}
+
+// handleAdminConfirmDeleteEvent удаляет событие и уведомляет канал
+func (h *Handlers) handleAdminConfirmDeleteEvent(ctx context.Context, cb *CallbackQuery) {
+	parts := strings.Split(cb.Data, ":")
+	if len(parts) != 4 {
+		h.logger.Warn("invalid delete event callback data", "callback_data", cb.Data)
+		return
+	}
+
+	eventID := event.EventID(parts[3])
+	evt, err := h.eventService.Get(ctx, eventID)
+	if err != nil || evt == nil {
+		if sendErr := h.client.SendMessage(cb.Message.ChatID, "❌ Событие не найдено"); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
+		}
+		return
+	}
+
+	if err := h.eventService.Delete(ctx, eventID); err != nil {
+		h.logger.Error("failed to delete event", "event_id", string(eventID), "error", err)
+		if sendErr := h.client.SendMessage(cb.Message.ChatID, fmt.Sprintf("❌ Ошибка удаления: %v", err)); sendErr != nil {
+			h.logger.Error("failed to send error message", "chat_id", cb.Message.ChatID, "error", sendErr)
+		}
+		return
+	}
+
+	// Уведомляем канал об отмене
+	h.publishEventCancelledToChannel(ctx, evt)
+
+	keyboard := NewInlineKeyboardMarkup(
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("🔙 В меню администратора", "admin:menu"),
+		),
+	)
+	if err := h.client.EditMessageTextAndMarkup(cb.Message.ChatID, cb.Message.MessageID,
+		fmt.Sprintf("✅ Событие «%s» удалено", evt.Name), keyboard); err != nil {
+		h.logger.Error("failed to edit message after event deletion", "chat_id", cb.Message.ChatID, "error", err)
 	}
 }
