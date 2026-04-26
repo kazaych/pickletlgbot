@@ -361,7 +361,12 @@ func (h *Handlers) sendPaymentInstruction(ctx context.Context, chatID int64, use
 		paymentMessage,
 	)
 
-	if err := h.client.SendMessage(chatID, message); err != nil {
+	keyboard := NewInlineKeyboardMarkup(
+		NewInlineKeyboardRow(
+			NewInlineKeyboardButtonData("🏠 Главное меню", "back:main"),
+		),
+	)
+	if err := h.client.SendMessageWithKeyboard(chatID, message, keyboard); err != nil {
 		h.logger.Error("failed to send payment instruction", "chat_id", chatID, "error", err)
 	}
 }
