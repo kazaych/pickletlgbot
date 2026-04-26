@@ -964,7 +964,12 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 				message = fmt.Sprintf("✅ Регистрация подтверждена\n\n👤 Пользователь: %s %s", usr.Name, usr.Surname)
 			}
 
-			if err := h.client.SendMessage(cb.Message.ChatID, message); err != nil {
+			adminMenuKeyboard := NewInlineKeyboardMarkup(
+				NewInlineKeyboardRow(
+					NewInlineKeyboardButtonData("🔙 В меню администратора", "admin:menu"),
+				),
+			)
+			if err := h.client.SendMessageWithKeyboard(cb.Message.ChatID, message, adminMenuKeyboard); err != nil {
 				h.logger.Error("failed to send success message", "chat_id", cb.Message.ChatID, "error", err)
 			}
 		} else {
@@ -976,7 +981,12 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 				}
 				return
 			}
-			if err := h.client.SendMessage(cb.Message.ChatID, "❌ Регистрация отклонена"); err != nil {
+			adminMenuKeyboard := NewInlineKeyboardMarkup(
+				NewInlineKeyboardRow(
+					NewInlineKeyboardButtonData("🔙 В меню администратора", "admin:menu"),
+				),
+			)
+			if err := h.client.SendMessageWithKeyboard(cb.Message.ChatID, "❌ Регистрация отклонена", adminMenuKeyboard); err != nil {
 				h.logger.Error("failed to send success message", "chat_id", cb.Message.ChatID, "error", err)
 			}
 		}
