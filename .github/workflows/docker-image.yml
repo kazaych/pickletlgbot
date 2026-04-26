@@ -6,7 +6,7 @@ on:
 
 env:
   IMAGE: ${{ vars.APP_REGISTRY }}:${{ github.sha }}
-  PROJECT_PATH: /opt/kitchen_project
+  PROJECT_PATH: /opt/bot
 
 jobs:
   build-push:
@@ -39,7 +39,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
-            cd /opt/kitchen_project
+            cd /opt/bot
 
             cat > .env << EOF
               BOT_IMAGE=${{ env.IMAGE }}
