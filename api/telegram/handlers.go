@@ -6,6 +6,7 @@ import (
 	"os"
 	"pickletlgbot/internal/domain/event"
 	"pickletlgbot/internal/domain/location"
+	"pickletlgbot/internal/domain/settings"
 	"pickletlgbot/internal/domain/user"
 	"strconv"
 	"strings"
@@ -45,6 +46,7 @@ type Handlers struct {
 	locationService location.LocationService
 	eventService    event.EventService
 	userService     user.UserService
+	settingsService settings.Service
 	client          *Client
 	formatter       *Formatter
 	adminIDs        []int64
@@ -55,6 +57,8 @@ type Handlers struct {
 	registeringUsers map[int64]*UserRegistrationState
 	// Временное хранилище для состояния создания локаций
 	creatingLocations map[int64]*LocationCreationState
+	// Временное хранилище для состояния настройки канала
+	settingChannel map[int64]bool
 }
 
 // NewHandlers создает новый набор обработчиков
@@ -62,6 +66,7 @@ func NewHandlers(
 	locationService location.LocationService,
 	eventService event.EventService,
 	userService user.UserService,
+	settingsService settings.Service,
 	client *Client,
 ) *Handlers {
 	adminIDs := parseAdminIDs()
@@ -70,6 +75,7 @@ func NewHandlers(
 		locationService:   locationService,
 		eventService:      eventService,
 		userService:       userService,
+		settingsService:   settingsService,
 		client:            client,
 		formatter:         NewFormatter(),
 		adminIDs:          adminIDs,
@@ -77,6 +83,7 @@ func NewHandlers(
 		creatingEvents:    make(map[int64]*EventCreationState),
 		registeringUsers:  make(map[int64]*UserRegistrationState),
 		creatingLocations: make(map[int64]*LocationCreationState),
+		settingChannel:    make(map[int64]bool),
 	}
 }
 
@@ -97,6 +104,14 @@ func (h *Handlers) HandleMessage(msg *Message) {
 		return
 	}
 
+	ctx := context.Background()
+
+	// Перехватываем пересланные сообщения для настройки канала
+	if h.isAdmin(msg.From.ID) && h.settingChannel[msg.ChatID] {
+		h.handleSetChannelInput(ctx, msg)
+		return
+	}
+
 	// Проверяем админ-команды
 	if strings.HasPrefix(msg.Text, "/admin") {
 		h.handleAdminCommand(msg)
@@ -104,34 +119,32 @@ func (h *Handlers) HandleMessage(msg *Message) {
 	}
 
 	// Обрабатываем обычные команды
-	switch msg.Text {
-	case "/start":
-		h.handleStart(msg)
-	default:
-		ctx := context.Background()
+	if strings.HasPrefix(msg.Text, "/start") {
+		h.handleStart(ctx, msg)
+		return
+	}
 
-		// Проверяем, не регистрируется ли пользователь (ввод имени/фамилии)
-		if state := h.getUserRegistrationState(msg.From.ID); state != nil {
-			h.handleUserRegistrationStep(ctx, msg, state)
+	// Проверяем, не регистрируется ли пользователь (ввод имени/фамилии)
+	if state := h.getUserRegistrationState(msg.From.ID); state != nil {
+		h.handleUserRegistrationStep(ctx, msg, state)
+		return
+	}
+
+	// Если это не команда, проверяем, не создается ли что-то админом
+	if h.isAdmin(msg.From.ID) && !strings.HasPrefix(msg.Text, "/") {
+		// Проверяем, не создается ли локация
+		if state := h.getCreatingLocationState(msg.ChatID); state != nil {
+			h.handleAdminCreateLocationStep(ctx, msg, state)
 			return
 		}
-
-		// Если это не команда, проверяем, не создается ли что-то админом
-		if h.isAdmin(msg.From.ID) && !strings.HasPrefix(msg.Text, "/") {
-			// Проверяем, не создается ли локация
-			if state := h.getCreatingLocationState(msg.ChatID); state != nil {
-				h.handleAdminCreateLocationStep(ctx, msg, state)
-				return
-			}
-			// Проверяем, не создается ли событие
-			if state := h.getCreatingEventState(msg.ChatID); state != nil {
-				h.handleAdminCreateEventStep(ctx, msg, state)
-				return
-			}
-		} else {
-			if err := h.client.SendMessage(msg.ChatID, "Нажмите /start для меню"); err != nil {
-				h.logger.Error("failed to send start prompt", "chat_id", msg.ChatID, "error", err)
-			}
+		// Проверяем, не создается ли событие
+		if state := h.getCreatingEventState(msg.ChatID); state != nil {
+			h.handleAdminCreateEventStep(ctx, msg, state)
+			return
+		}
+	} else {
+		if err := h.client.SendMessage(msg.ChatID, "Нажмите /start для меню"); err != nil {
+			h.logger.Error("failed to send start prompt", "chat_id", msg.ChatID, "error", err)
 		}
 	}
 }

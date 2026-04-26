@@ -8,6 +8,7 @@ import (
 	"pickletlgbot/api/telegram"
 	"pickletlgbot/internal/domain/event"
 	"pickletlgbot/internal/domain/location"
+	"pickletlgbot/internal/domain/settings"
 	"pickletlgbot/internal/domain/user"
 	"pickletlgbot/internal/models"
 	"pickletlgbot/repositories/postgres"
@@ -69,6 +70,7 @@ func main() {
 
 	if err := db.AutoMigrate(
 		&models.EventRegistrationGORM{}, // 4. event_registrations (зависит от user и events)
+		&models.SettingsGORM{},          // 5. settings (нет зависимостей)
 	); err != nil {
 		log.Fatalf("❌ Ошибка миграции (этап 2): %v", err)
 	}
@@ -79,15 +81,17 @@ func main() {
 	locationRepo := postgres.NewLocationRepository(db)
 	eventRepo := postgres.NewEventRepository(db)
 	userRepo := postgres.NewUserRepository(db)
+	settingsRepo := postgres.NewSettingsRepository(db)
 
 	// Инициализация доменных сервисов (бизнес-логика)
 	locationService := location.NewService(locationRepo)
 	userService := user.NewPlayerService(userRepo)
 	eventService := event.NewEventService(eventRepo, locationService)
+	settingsService := settings.NewService(settingsRepo)
 
 	// Инициализация API слоя (Telegram)
 	tgClient := telegram.NewClient(tgBot)
-	handlers := telegram.NewHandlers(locationService, eventService, userService, tgClient)
+	handlers := telegram.NewHandlers(locationService, eventService, userService, settingsService, tgClient)
 
 	// Получаем канал обновлений
 	updates := tgClient.GetUpdatesChan()
