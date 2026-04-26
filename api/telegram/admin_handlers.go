@@ -1037,10 +1037,10 @@ func (h *Handlers) handleAdminRegistrationModeration(ctx context.Context, cb *Ca
 	}
 }
 
-// publishEventToChannel публикует анонс события в настроенный канал
+// publishEventToChannel публикует анонс события во все настроенные каналы
 func (h *Handlers) publishEventToChannel(ctx context.Context, evt *event.Event) {
-	channelID, err := h.settingsService.GetChannelID(ctx)
-	if err != nil || channelID == 0 {
+	channelIDs, err := h.settingsService.GetChannelIDs(ctx)
+	if err != nil || len(channelIDs) == 0 {
 		return
 	}
 
@@ -1050,21 +1050,25 @@ func (h *Handlers) publishEventToChannel(ctx context.Context, evt *event.Event) 
 	}
 
 	text, keyboard := h.formatter.FormatChannelEventAnnouncement(evt, locationName, h.client.Username())
-	if err := h.client.SendMessageWithKeyboard(channelID, text, keyboard); err != nil {
-		h.logger.Error("failed to publish event to channel", "channel_id", channelID, "event_id", string(evt.ID), "error", err)
+	for _, channelID := range channelIDs {
+		if err := h.client.SendMessageWithKeyboard(channelID, text, keyboard); err != nil {
+			h.logger.Error("failed to publish event to channel", "channel_id", channelID, "event_id", string(evt.ID), "error", err)
+		}
 	}
 }
 
-// publishEventCancelledToChannel публикует уведомление об отмене события в канал
+// publishEventCancelledToChannel публикует уведомление об отмене события во все каналы
 func (h *Handlers) publishEventCancelledToChannel(ctx context.Context, evt *event.Event) {
-	channelID, err := h.settingsService.GetChannelID(ctx)
-	if err != nil || channelID == 0 {
+	channelIDs, err := h.settingsService.GetChannelIDs(ctx)
+	if err != nil || len(channelIDs) == 0 {
 		return
 	}
 
 	text := h.formatter.FormatChannelEventCancelled(evt)
-	if err := h.client.SendMessage(channelID, text); err != nil {
-		h.logger.Error("failed to publish event cancellation to channel", "channel_id", channelID, "event_id", string(evt.ID), "error", err)
+	for _, channelID := range channelIDs {
+		if err := h.client.SendMessage(channelID, text); err != nil {
+			h.logger.Error("failed to publish event cancellation to channel", "channel_id", channelID, "event_id", string(evt.ID), "error", err)
+		}
 	}
 }
 
@@ -1115,7 +1119,7 @@ func (h *Handlers) handleSetChannelInput(ctx context.Context, msg *Message) {
 		channelID = id
 	}
 
-	if err := h.settingsService.SetChannelID(ctx, channelID); err != nil {
+	if err := h.settingsService.AddChannelID(ctx, channelID); err != nil {
 		h.logger.Error("failed to save channel id", "channel_id", channelID, "error", err)
 		if sendErr := h.client.SendMessage(msg.ChatID, "❌ Ошибка сохранения канала"); sendErr != nil {
 			h.logger.Error("failed to send error message", "chat_id", msg.ChatID, "error", sendErr)

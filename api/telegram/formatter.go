@@ -613,6 +613,21 @@ func (f *Formatter) FormatChannelEventAnnouncement(evt *event.Event, locationNam
 	return text, keyboard
 }
 
+// FormatChannelUserRegistered форматирует уведомление о новой записи на событие для канала
+func (f *Formatter) FormatChannelUserRegistered(evt *event.Event, userName string) string {
+	typeEmoji := "🏋️"
+	if evt.Type == event.EventTypeCompetition {
+		typeEmoji = "🏆"
+	}
+	return fmt.Sprintf(
+		"🎉 Новая запись на событие!\n\n%s %s\n📅 %s\n👤 %s\n👥 Свободных мест: %d",
+		typeEmoji, evt.Name,
+		evt.Date.Format("02.01.2006 15:04"),
+		userName,
+		evt.Remaining,
+	)
+}
+
 // FormatChannelEventCancelled форматирует уведомление об отмене события для канала
 func (f *Formatter) FormatChannelEventCancelled(evt *event.Event) string {
 	typeEmoji := "🏋️"

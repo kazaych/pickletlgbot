@@ -56,6 +56,7 @@ func (c *Client) AnswerCallbackQuery(callbackQueryID string) error {
 func (c *Client) GetUpdatesChan() <-chan *Update {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
+	u.AllowedUpdates = []string{"message", "callback_query", "my_chat_member"}
 	updates := c.bot.GetUpdatesChan(u)
 
 	updateChan := make(chan *Update)
@@ -76,8 +77,15 @@ func (c *Client) Username() string {
 
 // Update представляет обновление от Telegram
 type Update struct {
-	Message       *Message
-	CallbackQuery *CallbackQuery
+	Message        *Message
+	CallbackQuery  *CallbackQuery
+	MyChatMember   *ChatMemberUpdate
+}
+
+// ChatMemberUpdate представляет изменение статуса бота в чате/канале
+type ChatMemberUpdate struct {
+	ChatID int64
+	Status string // "administrator", "member", "left", "kicked"
 }
 
 // Message представляет сообщение от Telegram
@@ -175,6 +183,13 @@ func convertUpdate(update tgbotapi.Update) *Update {
 			msg.ForwardFromChatID = update.Message.ForwardFromChat.ID
 		}
 		result.Message = msg
+	}
+
+	if update.MyChatMember != nil && update.MyChatMember.Chat.Type == "channel" {
+		result.MyChatMember = &ChatMemberUpdate{
+			ChatID: update.MyChatMember.Chat.ID,
+			Status: update.MyChatMember.NewChatMember.Status,
+		}
 	}
 
 	if update.CallbackQuery != nil {

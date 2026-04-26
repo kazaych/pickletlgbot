@@ -96,6 +96,29 @@ func (h *Handlers) HandleUpdate(update *Update) {
 	if update.CallbackQuery != nil {
 		h.HandleCallback(update.CallbackQuery)
 	}
+
+	if update.MyChatMember != nil {
+		h.handleMyChatMember(update.MyChatMember)
+	}
+}
+
+// handleMyChatMember автоматически регистрирует/удаляет канал при добавлении/удалении бота
+func (h *Handlers) handleMyChatMember(upd *ChatMemberUpdate) {
+	ctx := context.Background()
+	switch upd.Status {
+	case "administrator", "member":
+		if err := h.settingsService.AddChannelID(ctx, upd.ChatID); err != nil {
+			h.logger.Error("failed to auto-register channel", "channel_id", upd.ChatID, "error", err)
+		} else {
+			h.logger.Info("channel auto-registered", "channel_id", upd.ChatID)
+		}
+	case "left", "kicked":
+		if err := h.settingsService.RemoveChannelID(ctx, upd.ChatID); err != nil {
+			h.logger.Error("failed to auto-remove channel", "channel_id", upd.ChatID, "error", err)
+		} else {
+			h.logger.Info("channel auto-removed", "channel_id", upd.ChatID)
+		}
+	}
 }
 
 // HandleMessage обрабатывает текстовые сообщения

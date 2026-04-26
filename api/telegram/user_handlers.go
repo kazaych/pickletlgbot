@@ -314,6 +314,34 @@ func (h *Handlers) registerUserToEvent(ctx context.Context, eventID event.EventI
 
 	// Отправляем сообщение с инструкцией по оплате
 	h.sendPaymentInstruction(ctx, chatID, userID, evt)
+
+	// Уведомляем каналы о новой регистрации
+	h.publishRegistrationToChannels(ctx, evt, userID)
+}
+
+// publishRegistrationToChannels отправляет уведомление о регистрации во все каналы
+func (h *Handlers) publishRegistrationToChannels(ctx context.Context, evt *event.Event, userID int64) {
+	channelIDs, err := h.settingsService.GetChannelIDs(ctx)
+	if err != nil || len(channelIDs) == 0 {
+		return
+	}
+
+	usr, err := h.userService.GetByTelegramID(ctx, userID)
+	if err != nil || usr == nil {
+		return
+	}
+
+	userName := usr.Name
+	if usr.Surname != "" {
+		userName = fmt.Sprintf("%s %s", usr.Name, usr.Surname)
+	}
+
+	text := h.formatter.FormatChannelUserRegistered(evt, userName)
+	for _, channelID := range channelIDs {
+		if err := h.client.SendMessage(channelID, text); err != nil {
+			h.logger.Error("failed to send registration notification to channel", "channel_id", channelID, "error", err)
+		}
+	}
 }
 
 // sendPaymentInstruction отправляет сообщение с инструкцией по оплате
